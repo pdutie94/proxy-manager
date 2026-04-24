@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  password      String         @db.VarChar(255)
+  name          String
+  role          Role           @default(CUSTOMER)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  proxies       Proxy[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique @db.VarChar(255)
+  userId    Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Server {
+  id               Int          @id @default(autoincrement())
+  name             String
+  host             String       @db.VarChar(255)
+  sshPort          Int          @default(22)
+  sshUsername      String
+  sshPassword      String?      @db.VarChar(255)
+  sshPrivateKey    String?      @db.Text
+  sshKeyPassphrase String?      @db.VarChar(255)
+  proxyPortStart   Int          @default(10000)
+  proxyPortEnd     Int          @default(20000)
+  status           ServerStatus @default(PENDING)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  proxies          Proxy[]
+
+  @@index([status])
+  @@map("servers")
+}
+
+model Proxy {
+  id          Int       @id @default(autoincrement())
+  serverId    Int
+  port        Int
+  username    String?
+  password    String?   @db.VarChar(255)
+  protocol    Protocol  @default(SOCKS5)
+  assignedTo  Int?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  lastChecked DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  customer    User?     @relation(fields: [assignedTo], references: [id])
+  server      Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, port])
+  @@index([assignedTo])
+  @@index([isActive])
+  @@index([serverId])
+  @@map("proxies")
+}
+
+enum Role {
+  ADMIN
+  CUSTOMER
+}
+
+enum ServerStatus {
+  PENDING
+  INSTALLING
+  ACTIVE
+  ERROR
+  OFFLINE
+}
+
+enum Protocol {
+  HTTP
+  SOCKS4
+  SOCKS5
+}
