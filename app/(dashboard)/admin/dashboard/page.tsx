@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuthStore } from '@/stores/authStore';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Users,
   Server,
@@ -31,8 +31,12 @@ export default function AdminDashboard() {
     activeUsers: 0,
   });
   const [loading, setLoading] = useState(true);
+  const hasFetched = useRef(false);
 
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+    
     const fetchStats = async () => {
       try {
         const [usersRes, serversRes] = await Promise.all([
@@ -134,25 +138,28 @@ export default function AdminDashboard() {
         </p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-6">
+      {/* Stats Grid - Compact Modern Design */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
             <Link
               key={card.title}
               href={card.href}
-              className="group bg-white p-3 lg:p-6 rounded-lg lg:rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+              className="group relative bg-white p-3 rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-lg hover:shadow-gray-100/50 hover:-translate-y-0.5 transition-all duration-200 overflow-hidden"
             >
-              <div className="flex items-start justify-between">
-                <div className={`${card.color} p-2 lg:p-3 rounded-md lg:rounded-lg`}>
-                  <Icon className="h-4 w-4 lg:h-6 lg:w-6 text-white" />
+              {/* Subtle gradient background on hover */}
+              <div className={`absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-200 ${card.color}`}></div>
+              
+              <div className="relative flex items-center gap-3">
+                {/* Icon with gradient */}
+                <div className={`${card.color} p-2.5 rounded-lg shadow-sm group-hover:shadow-md transition-shadow`}>
+                  <Icon className="h-4 w-4 text-white" />
                 </div>
-                <ArrowRight className="h-4 w-4 lg:h-5 lg:w-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
-              </div>
-              <div className="mt-2 lg:mt-4">
-                <p className="text-xs lg:text-sm font-medium text-gray-600">{card.title}</p>
-                <p className="text-xl lg:text-2xl font-bold text-gray-900 mt-0.5 lg:mt-1">{card.value}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{card.title}</p>
+                  <p className="text-xl font-bold text-gray-900 tabular-nums">{card.value}</p>
+                </div>
               </div>
             </Link>
           );

@@ -3,7 +3,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   ArrowLeft,
   User,
@@ -57,11 +57,13 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const hasFetched = useRef(false);
 
   const userId = parseInt(params.id as string);
 
   useEffect(() => {
-    if (userId) {
+    if (userId && !hasFetched.current) {
+      hasFetched.current = true;
       fetchUser();
       fetchUserProxies();
     }

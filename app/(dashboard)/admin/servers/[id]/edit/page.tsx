@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import {
@@ -53,9 +53,13 @@ export default function EditServerPage({ params }: { params: { id: string } }) {
   const [usePrivateKey, setUsePrivateKey] = useState(false);
   const [originalHasPassword, setOriginalHasPassword] = useState(false);
   const [originalHasKey, setOriginalHasKey] = useState(false);
+  const hasFetched = useRef(false);
 
   // Fetch server data on load
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+    
     const fetchServer = async () => {
       setLoading(true);
       try {

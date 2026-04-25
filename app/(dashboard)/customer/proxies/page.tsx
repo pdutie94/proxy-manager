@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuthStore } from '@/stores/authStore';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { api } from '@/lib/api';
 
 interface Proxy {
@@ -27,8 +27,12 @@ export default function CustomerProxies() {
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const hasFetched = useRef(false);
 
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+    
     const fetchProxies = async () => {
       try {
         const response = await api.get<{ proxies: any[]; total: number }>('/api/customer/proxies');

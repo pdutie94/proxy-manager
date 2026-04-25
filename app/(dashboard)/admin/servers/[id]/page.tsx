@@ -3,7 +3,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   ArrowLeft,
   Server,
@@ -68,11 +68,13 @@ export default function ServerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
+  const hasFetched = useRef(false);
 
   const serverId = parseInt(params.id as string);
 
   useEffect(() => {
-    if (serverId) {
+    if (serverId && !hasFetched.current) {
+      hasFetched.current = true;
       fetchServer();
     }
   }, [serverId]);
