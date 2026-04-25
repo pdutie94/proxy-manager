@@ -3,6 +3,9 @@ import { prisma } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
 import { SSHService } from '@/lib/ssh';
 
+// Force Node.js runtime - node-ssh requires fs module which is not available in Edge
+export const runtime = 'nodejs';
+
 // DELETE /api/admin/servers/[id]/proxies/[port] - Delete proxy
 export async function DELETE(
   request: NextRequest,

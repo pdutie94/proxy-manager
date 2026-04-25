@@ -127,6 +127,14 @@ class ApiClient {
     });
   }
 
+  async patch<T>(url: string, data?: any, options?: Omit<RequestInit, 'body' | 'method'>): Promise<T> {
+    return this.request<T>(url, {
+      ...options,
+      method: 'PATCH',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+
   async delete<T>(url: string, options?: Omit<RequestInit, 'body' | 'method'>): Promise<T> {
     return this.request<T>(url, { ...options, method: 'DELETE' });
   }
@@ -143,6 +151,8 @@ export const api = {
     apiClient.post<T>(url, data, options),
   put: <T>(url: string, data?: any, options?: Omit<RequestInit, 'body' | 'method'>) =>
     apiClient.put<T>(url, data, options),
+  patch: <T>(url: string, data?: any, options?: Omit<RequestInit, 'body' | 'method'>) =>
+    apiClient.patch<T>(url, data, options),
   delete: <T>(url: string, options?: Omit<RequestInit, 'body' | 'method'>) =>
     apiClient.delete<T>(url, options),
   request: <T>(url: string, options?: RequestInit) =>

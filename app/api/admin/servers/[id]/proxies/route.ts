@@ -4,6 +4,9 @@ import { verifyAccessToken } from '@/lib/auth';
 import { SSHService } from '@/lib/ssh';
 import { Protocol } from '@prisma/client';
 
+// Force Node.js runtime - node-ssh requires fs module which is not available in Edge
+export const runtime = 'nodejs';
+
 // GET /api/admin/servers/[id]/proxies - List proxies on a server
 export async function GET(
   request: NextRequest,

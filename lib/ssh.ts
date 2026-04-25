@@ -199,4 +199,151 @@ WantedBy=multi-user.target`;
       return { success: false, message: 'SSH Failed', error: error.message };
     }
   }
+
+  /**
+   * Kiểm tra 3proxy đã được cài đặt chưa
+   */
+  static async check3ProxyInstalled(server: Server): Promise<boolean> {
+    try {
+      const ssh = await this.connect(server);
+      // Kiểm tra binary 3proxy có tồn tại không
+      const checkBin = await ssh.execCommand('which 3proxy');
+      if (checkBin.code !== 0) return false;
+
+      // Kiểm tra service có tồn tại và chạy không
+      const checkService = await ssh.execCommand('systemctl is-active 3proxy');
+      return checkService.code === 0 || checkService.stdout.trim() === 'active';
+    } catch (error) {
+      console.error(`[SSH] Failed to check 3proxy on ${server.host}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Kiểm tra port có đang listen không
+   */
+  static async checkProxyPort(server: Server, port: number): Promise<boolean> {
+    try {
+      const ssh = await this.connect(server);
+      // Dùng ss (thay thế netstat, nhanh hơn)
+      const checkPort = await ssh.execCommand(`ss -tlnp | grep -q ':${port}' && echo "LISTENING" || echo "NOT_LISTENING"`);
+      return checkPort.stdout.trim() === 'LISTENING';
+    } catch (error) {
+      console.error(`[SSH] Failed to check port ${port} on ${server.host}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Đọc và parse file cấu hình 3proxy từ server
+   * Trả về danh sách proxy config đã parse
+   */
+  static async parseProxyConfig(server: Server): Promise<ProxyConfig[]> {
+    try {
+      const ssh = await this.connect(server);
+
+      // Đọc nội dung file 3proxy.cfg
+      const result = await ssh.execCommand('sudo cat /etc/3proxy/3proxy.cfg');
+      if (result.code !== 0) {
+        throw new Error(`Failed to read config file: ${result.stderr}`);
+      }
+
+      const configContent = result.stdout;
+      const proxies: ProxyConfig[] = [];
+
+      // Parse từng block cấu hình (phân cách bởi flush hoặc section mới)
+      const lines = configContent.split('\n');
+      let currentAuth: 'none' | 'strong' = 'none';
+      let currentUser: string | undefined;
+      let currentPassword: string | undefined;
+      let currentExternalIp: string | undefined;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+
+        // Bỏ qua comment và empty lines
+        if (!line || line.startsWith('#')) continue;
+
+        // Parse auth type
+        if (line.startsWith('auth ')) {
+          const authType = line.split(' ')[1]?.toLowerCase();
+          currentAuth = authType === 'strong' ? 'strong' : 'none';
+          currentUser = undefined;
+          currentPassword = undefined;
+          continue;
+        }
+
+        // Parse users (format: users username:CL:password)
+        if (line.startsWith('users ')) {
+          const userMatch = line.match(/users\s+(\w+):CL:(\S+)/);
+          if (userMatch) {
+            currentUser = userMatch[1];
+            currentPassword = userMatch[2];
+          }
+          continue;
+        }
+
+        // Parse external IP
+        if (line.includes('external ')) {
+          const extMatch = line.match(/external\s+(\S+)/);
+          if (extMatch) {
+            currentExternalIp = extMatch[1];
+          }
+          continue;
+        }
+
+        // Parse proxy command (HTTP proxy)
+        // Format: proxy -pPORT hoặc proxy -pPORT -eIP
+        const proxyMatch = line.match(/proxy\s+-p(\d+)(?:\s+-e(\S+))?/);
+        if (proxyMatch) {
+          const port = parseInt(proxyMatch[1]);
+          const externalIp = proxyMatch[2] || currentExternalIp;
+
+          proxies.push({
+            port,
+            protocol: 'HTTP',
+            username: currentAuth === 'strong' ? currentUser : undefined,
+            password: currentAuth === 'strong' ? currentPassword : undefined,
+            externalIp
+          });
+          continue;
+        }
+
+        // Parse socks command (SOCKS proxy)
+        // Format: socks -pPORT, socks4 -pPORT, socks5 -pPORT
+        const socksMatch = line.match(/socks(\d?)\s+-p(\d+)(?:\s+-e(\S+))?/);
+        if (socksMatch) {
+          const port = parseInt(socksMatch[2]);
+          const externalIp = socksMatch[3] || currentExternalIp;
+          const socksVersion = socksMatch[1]; // '4', '5', or ''
+
+          // Mặc định SOCKS5, nếu socks4 thì dùng SOCKS4
+          const protocol: 'HTTP' | 'SOCKS4' | 'SOCKS5' = socksVersion === '4' ? 'SOCKS4' : 'SOCKS5';
+
+          proxies.push({
+            port,
+            protocol,
+            username: currentAuth === 'strong' ? currentUser : undefined,
+            password: currentAuth === 'strong' ? currentPassword : undefined,
+            externalIp
+          });
+          continue;
+        }
+
+        // Reset khi gặp flush
+        if (line === 'flush') {
+          currentAuth = 'none';
+          currentUser = undefined;
+          currentPassword = undefined;
+          currentExternalIp = undefined;
+        }
+      }
+
+      console.log(`[SSH] Parsed ${proxies.length} proxies from config on ${server.host}`);
+      return proxies;
+    } catch (error) {
+      console.error(`[SSH] Failed to parse proxy config from ${server.host}:`, error);
+      throw error;
+    }
+  }
 }

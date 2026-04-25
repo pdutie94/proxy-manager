@@ -4,6 +4,9 @@ import { verifyAccessToken } from '@/lib/auth';
 import { SSHService } from '@/lib/ssh';
 import { ServerStatus } from '@prisma/client';
 
+// Force Node.js runtime - node-ssh requires fs module which is not available in Edge
+export const runtime = 'nodejs';
+
 // POST /api/admin/servers/[id]/install - Install 3proxy on server
 export async function POST(
   request: NextRequest,
