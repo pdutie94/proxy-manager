@@ -5,9 +5,10 @@ import { verifyAccessToken } from '@/lib/auth';
 // POST /api/customer/proxies/[id]/extend - Extend proxy rental duration
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify customer access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -19,7 +20,7 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const proxyId = parseInt(params.id);
+    const proxyId = parseInt(id);
     if (isNaN(proxyId)) {
       return NextResponse.json({ error: 'Invalid proxy ID' }, { status: 400 });
     }

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
 import { SSHService } from '@/lib/ssh';
-import { Protocol } from '@prisma/client';
 
 // Force Node.js runtime - node-ssh requires fs module which is not available in Edge
 export const runtime = 'nodejs';
@@ -10,9 +9,10 @@ export const runtime = 'nodejs';
 // GET /api/admin/servers/[id]/proxies - List proxies on a server
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -24,7 +24,7 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }
@@ -68,9 +68,10 @@ export async function GET(
 // POST /api/admin/servers/[id]/proxies - Create new proxy
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -82,7 +83,7 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }
@@ -98,7 +99,7 @@ export async function POST(
     }
 
     // Validate protocol
-    if (!Object.values(Protocol).includes(protocol)) {
+    if (!['HTTP', 'SOCKS4', 'SOCKS5'].includes(protocol)) {
       return NextResponse.json(
         { error: 'Invalid protocol. Must be HTTP, SOCKS4, or SOCKS5' },
         { status: 400 }

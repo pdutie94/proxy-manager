@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
 import { SSHService } from '@/lib/ssh';
-import { ServerStatus } from '@prisma/client';
 
 // Force Node.js runtime - node-ssh requires fs module which is not available in Edge
 export const runtime = 'nodejs';
@@ -10,9 +9,10 @@ export const runtime = 'nodejs';
 // POST /api/admin/servers/[id]/connect - Connect to server and install 3proxy if needed
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -24,7 +24,7 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }
@@ -46,7 +46,7 @@ export async function POST(
       await prisma.server.update({
         where: { id: serverId },
         data: {
-          status: ServerStatus.OFFLINE,
+          status: 'OFFLINE',
           lastChecked: new Date()
         }
       });
@@ -72,7 +72,7 @@ export async function POST(
         await prisma.server.update({
           where: { id: serverId },
           data: {
-            status: ServerStatus.ERROR,
+            status: 'ERROR',
             lastChecked: new Date()
           }
         });
@@ -95,7 +95,7 @@ export async function POST(
     await prisma.server.update({
       where: { id: serverId },
       data: {
-        status: ServerStatus.ACTIVE,
+        status: 'ACTIVE',
         is3ProxyInstalled: true,
         lastChecked: new Date()
       }
@@ -106,7 +106,7 @@ export async function POST(
       step: 'complete',
       message: `Kết nối thành công. ${installMessage}`,
       is3ProxyInstalled: true,
-      status: ServerStatus.ACTIVE
+      status: 'ACTIVE'
     });
 
   } catch (error) {
@@ -114,11 +114,12 @@ export async function POST(
     
     // Try to update server status to ERROR
     try {
-      const serverId = parseInt(params.id);
+      const { id: errorId } = await params;
+      const serverId = parseInt(errorId);
       await prisma.server.update({
         where: { id: serverId },
         data: {
-          status: ServerStatus.ERROR,
+          status: 'ERROR',
           lastChecked: new Date()
         }
       });

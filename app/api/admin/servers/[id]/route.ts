@@ -9,9 +9,10 @@ export const runtime = 'nodejs';
 // GET /api/admin/servers/[id] - Get server details
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -23,7 +24,7 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }
@@ -81,9 +82,10 @@ export async function GET(
 // PUT /api/admin/servers/[id] - Update server
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -95,7 +97,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }
@@ -184,9 +186,10 @@ export async function PUT(
 // DELETE /api/admin/servers/[id] - Delete server
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -198,7 +201,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }

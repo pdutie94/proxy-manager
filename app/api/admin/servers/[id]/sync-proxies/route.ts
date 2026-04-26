@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
 import { SSHService } from '@/lib/ssh';
-import { Protocol } from '@prisma/client';
 
 // Force Node.js runtime - node-ssh requires fs module which is not available in Edge
 export const runtime = 'nodejs';
@@ -10,9 +9,10 @@ export const runtime = 'nodejs';
 // POST /api/admin/servers/[id]/sync-proxies - Sync proxies from 3proxy.cfg
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -24,7 +24,7 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }
@@ -70,7 +70,7 @@ export async function POST(
     };
 
     // Tạo map của existing proxies để dễ tra cứu
-    const existingProxyMap = new Map(existingProxies.map(p => [p.port, p]));
+    const existingProxyMap = new Map(existingProxies.map((p: any) => [p.port, p]));
     const processedPorts = new Set<number>();
 
     // Xử lý từng proxy từ config
@@ -78,18 +78,17 @@ export async function POST(
       const existingProxy = existingProxyMap.get(parsedProxy.port);
       processedPorts.add(parsedProxy.port);
 
-      // Map protocol string to Protocol enum
-      let protocol: Protocol;
+      // Map protocol string to protocol string
+      let protocol: string;
       switch (parsedProxy.protocol) {
         case 'SOCKS4':
-          protocol = Protocol.SOCKS4;
+          protocol = 'SOCKS4';
           break;
         case 'SOCKS5':
-          protocol = Protocol.SOCKS5;
+          protocol = 'SOCKS5';
           break;
-        case 'HTTP':
         default:
-          protocol = Protocol.HTTP;
+          protocol = 'HTTP';
       }
 
       if (!existingProxy) {
@@ -97,9 +96,9 @@ export async function POST(
         await prisma.proxy.create({
           data: {
             port: parsedProxy.port,
-            protocol,
-            username: parsedProxy.username,
-            password: parsedProxy.password,
+            protocol: protocol as any,
+            username: (parsedProxy as any).username,
+            password: (parsedProxy as any).password,
             serverId,
             isActive: true,
             lastChecked: new Date()
@@ -110,17 +109,17 @@ export async function POST(
       } else {
         // Kiểm tra xem có cần update không
         const needsUpdate =
-          existingProxy.protocol !== protocol ||
-          existingProxy.username !== parsedProxy.username ||
-          existingProxy.password !== parsedProxy.password;
+          (existingProxy as any).protocol !== protocol ||
+          (existingProxy as any).username !== (parsedProxy as any).username ||
+          (existingProxy as any).password !== (parsedProxy as any).password;
 
         if (needsUpdate) {
           await prisma.proxy.update({
-            where: { id: existingProxy.id },
+            where: { id: (existingProxy as any).id },
             data: {
-              protocol,
-              username: parsedProxy.username,
-              password: parsedProxy.password,
+              protocol: protocol as any,
+              username: (parsedProxy as any).username,
+              password: (parsedProxy as any).password,
               lastChecked: new Date()
             }
           });

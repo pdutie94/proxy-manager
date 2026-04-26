@@ -9,9 +9,10 @@ export const runtime = 'nodejs';
 // DELETE /api/admin/servers/[id]/proxies/[port] - Delete proxy
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string; port: string } }
+  { params }: { params: Promise<{ id: string; port: string }> }
 ) {
   try {
+    const { id, port } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -23,10 +24,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
-    const port = parseInt(params.port);
+    const serverId = parseInt(id);
+    const portNum = parseInt(port);
 
-    if (isNaN(serverId) || isNaN(port)) {
+    if (isNaN(serverId) || isNaN(portNum)) {
       return NextResponse.json({ error: 'Invalid server ID or port' }, { status: 400 });
     }
 
@@ -44,7 +45,7 @@ export async function DELETE(
       where: {
         serverId_port: {
           serverId,
-          port
+          port: portNum
         }
       },
       include: {
@@ -64,7 +65,7 @@ export async function DELETE(
 
     // Delete proxy from server via SSH
     try {
-      const result = await SSHService.deleteProxy(server, port);
+      const result = await SSHService.deleteProxy(server, portNum);
 
       if (!result.success) {
         console.error('Failed to delete proxy from server:', result.error);

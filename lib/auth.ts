@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { prisma } from './db';
 
@@ -48,11 +48,11 @@ export async function login(user: { id: number; email: string; role: string; nam
   
   const accessToken = jwt.sign(payload, JWT_SECRET, {
     expiresIn: (process.env.JWT_ACCESS_EXPIRATION || '60m').toString().trim(),
-  });
+  } as SignOptions);
   
   const refreshToken = jwt.sign(payload, JWT_SECRET, {
     expiresIn: process.env.JWT_REFRESH_EXPIRATION || '7d',
-  });
+  } as SignOptions);
 
   // Save refresh token to database
   await prisma.refreshToken.create({
@@ -96,7 +96,7 @@ export async function refreshToken(refreshToken: string) {
     
     const accessToken = jwt.sign(newPayload, JWT_SECRET, {
       expiresIn: (process.env.JWT_ACCESS_EXPIRATION || '60m').toString().trim(),
-    });
+    } as SignOptions);
 
     return { accessToken };
   } catch (error) {

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
 import { SSHService } from '@/lib/ssh';
-import { ServerStatus } from '@prisma/client';
 
 // Force Node.js runtime - node-ssh requires fs module which is not available in Edge
 export const runtime = 'nodejs';
@@ -10,9 +9,10 @@ export const runtime = 'nodejs';
 // POST /api/admin/servers/[id]/test - Test SSH connection
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     // Verify admin access
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
@@ -24,7 +24,7 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const serverId = parseInt(params.id);
+    const serverId = parseInt(id);
     if (isNaN(serverId)) {
       return NextResponse.json({ error: 'Invalid server ID' }, { status: 400 });
     }
@@ -45,7 +45,7 @@ export async function POST(
     await prisma.server.update({
       where: { id: serverId },
       data: {
-        status: result.success ? ServerStatus.ACTIVE : ServerStatus.OFFLINE
+        status: result.success ? 'ACTIVE' : 'OFFLINE'
       }
     });
 

@@ -1,9 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'node-cron'],
-    instrumentationHook: true,
-  },
+  serverExternalPackages: ['@prisma/client', 'node-cron'],
 }
 
 export default nextConfig

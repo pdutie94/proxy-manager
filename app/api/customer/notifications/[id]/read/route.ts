@@ -7,9 +7,10 @@ export const dynamic = 'force-dynamic';
 // PATCH /api/customer/notifications/[id]/read - Mark notification as read
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -22,7 +23,7 @@ export async function PATCH(
 
     // Get notification first
     const notification = await prisma.notification.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: { recipients: true },
     });
 
@@ -46,7 +47,7 @@ export async function PATCH(
       where: {
         userId_notificationId: {
           userId: payload.sub,
-          notificationId: params.id,
+          notificationId: id,
         },
       },
       update: {
@@ -55,7 +56,7 @@ export async function PATCH(
       },
       create: {
         userId: payload.sub,
-        notificationId: params.id,
+        notificationId: id,
         isRead: true,
         readAt: new Date(),
       },
