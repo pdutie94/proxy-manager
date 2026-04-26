@@ -16,10 +16,14 @@ import {
   ChevronDown,
   Settings,
   Menu,
-  X
+  X,
+  ShoppingCart,
+  Bell,
+  MessageSquare
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 
 interface NavItem {
   href: string;
@@ -81,10 +85,13 @@ export default function DashboardLayout({
       ]
     },
     { href: '/admin/users', label: 'Người dùng', icon: Users },
+    { href: '/admin/notifications', label: 'Gửi thông báo', icon: MessageSquare },
   ];
 
   const customerNavItems: NavItem[] = [
     { href: '/customer/proxies', label: 'Proxy của tôi', icon: Zap },
+    { href: '/customer/rent', label: 'Thuê proxy', icon: ShoppingCart },
+    { href: '/customer/notifications', label: 'Thông báo', icon: Bell },
   ];
 
   const navItems = isAdmin ? adminNavItems : customerNavItems;
@@ -163,12 +170,15 @@ export default function DashboardLayout({
           </div>
           <h1 className="font-bold text-sm">Proxy Manager</h1>
         </div>
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2 hover:bg-slate-800 rounded-lg"
-        >
-          {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        <div className="flex items-center gap-2">
+          {!isAdmin && <NotificationBell />}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 hover:bg-slate-800 rounded-lg"
+          >
+            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Sidebar */}
@@ -177,17 +187,24 @@ export default function DashboardLayout({
       }`}>
         {/* Logo - desktop only */}
         <div className="hidden lg:block p-6 border-b border-slate-800">
-          <Link href={isAdmin ? '/admin/dashboard' : '/customer/proxies'} className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-lg">
-              <Shield className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="font-bold text-lg">Proxy Manager</h1>
-              <p className="text-xs text-slate-400">
-                {isAdmin ? 'Quản trị viên' : 'Khách hàng'}
-              </p>
-            </div>
-          </Link>
+          <div className="flex items-center justify-between">
+            <Link href={isAdmin ? '/admin/dashboard' : '/customer/proxies'} className="flex items-center gap-3">
+              <div className="p-2 bg-blue-600 rounded-lg">
+                <Shield className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="font-bold text-lg">Proxy Manager</h1>
+                <p className="text-xs text-slate-400">
+                  {isAdmin ? 'Quản trị viên' : 'Khách hàng'}
+                </p>
+              </div>
+            </Link>
+            {!isAdmin && (
+              <div className="text-white">
+                <NotificationBell />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Spacer for mobile */}

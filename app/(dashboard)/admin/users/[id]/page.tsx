@@ -4,6 +4,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { useEffect, useState, useRef } from 'react';
+import { useToast } from '@/components/ui/Toast';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import {
   ArrowLeft,
   User,
@@ -51,6 +53,7 @@ export default function UserDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user: currentUser } = useAuthStore();
+  const { success, error: toastError } = useToast();
   
   const [user, setUser] = useState<User | null>(null);
   const [proxies, setProxies] = useState<Proxy[]>([]);
@@ -60,6 +63,21 @@ export default function UserDetailPage() {
   const hasFetched = useRef(false);
 
   const userId = parseInt(params.id as string);
+  
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'primary' | 'warning';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'danger',
+  });
 
   useEffect(() => {
     if (userId && !hasFetched.current) {
@@ -94,24 +112,35 @@ export default function UserDetailPage() {
     try {
       await api.patch(`/api/admin/users/${userId}`, { isActive });
       setUser(prev => prev ? { ...prev, isActive } : null);
+      success(`Đã ${isActive ? 'kích hoạt' : 'vô hiệu hóa'} người dùng`);
     } catch (error) {
       console.error('Failed to toggle user status:', error);
+      toastError('Không thể cập nhật trạng thái');
     } finally {
       setActionLoading(false);
     }
   };
 
   const deleteUser = async () => {
-    if (!confirm('Bạn có chắc chắn muốn xóa người dùng này?')) return;
-    
-    setActionLoading(true);
-    try {
-      await api.delete(`/api/admin/users/${userId}`);
-      router.push('/admin/users');
-    } catch (error) {
-      console.error('Failed to delete user:', error);
-      setActionLoading(false);
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa người dùng',
+      message: `Bạn có chắc muốn xóa người dùng "${user?.name}"? Hành động này không thể hoàn tác.`,
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setActionLoading(true);
+        try {
+          await api.delete(`/api/admin/users/${userId}`);
+          success('Đã xóa người dùng');
+          router.push('/admin/users');
+        } catch (error) {
+          console.error('Failed to delete user:', error);
+          toastError('Không thể xóa người dùng');
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
   if (loading) {
@@ -320,6 +349,18 @@ export default function UserDetailPage() {
           Ngày tạo: {new Date(user.createdAt).toLocaleDateString('vi-VN')}
         </span>
       </div>
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText="Xác nhận"
+        cancelText="Hủy"
+      />
     </div>
   );
 }

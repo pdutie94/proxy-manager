@@ -3,6 +3,8 @@
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { useEffect, useState, useRef } from 'react';
+import { useToast } from '@/components/ui/Toast';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import {
   Server,
   Plus,
@@ -49,6 +51,7 @@ interface Server {
 
 export default function ServersPage() {
   const { user } = useAuthStore();
+  const { success, error: toastError } = useToast();
   const [servers, setServers] = useState<Server[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -58,6 +61,21 @@ export default function ServersPage() {
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
+  
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'primary' | 'warning';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'danger',
+  });
   const filterDropdownRef = useRef<HTMLDivElement>(null);
   const hasFetched = useRef(false);
   const itemsPerPage = 10;
@@ -158,65 +176,75 @@ export default function ServersPage() {
         ));
       }
 
-      alert(response.message);
+      success(response.message);
     } catch (error) {
-      alert('Kiểm tra kết nối thất bại');
+      toastError('Kiểm tra kết nối thất bại');
     } finally {
       setActionLoading(null);
     }
   };
 
   const install3Proxy = async (serverId: number) => {
-    if (!confirm('Bạn có chắc muốn cài đặt 3proxy? Quá trình này có thể mất vài phút.')) {
-      return;
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Cài đặt 3proxy',
+      message: 'Bạn có chắc muốn cài đặt 3proxy? Quá trình này có thể mất vài phút.',
+      variant: 'primary',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setActionLoading(serverId);
+        setServers(prev => prev.map(server =>
+          server.id === serverId
+            ? { ...server, status: 'INSTALLING' }
+            : server
+        ));
 
-    setActionLoading(serverId);
-    setServers(prev => prev.map(server =>
-      server.id === serverId
-        ? { ...server, status: 'INSTALLING' }
-        : server
-    ));
+        try {
+          const response = await api.post<{ success: boolean; message: string; status: string }>(`/api/admin/servers/${serverId}/install`);
 
-    try {
-      const response = await api.post<{ success: boolean; message: string; status: string }>(`/api/admin/servers/${serverId}/install`);
+          setServers(prev => prev.map(server =>
+            server.id === serverId
+              ? { ...server, status: response.status as Server['status'] }
+              : server
+          ));
 
-      setServers(prev => prev.map(server =>
-        server.id === serverId
-          ? { ...server, status: response.status as Server['status'] }
-          : server
-      ));
-
-      alert(response.message);
-    } catch (error) {
-      alert('Cài đặt thất bại');
-      setServers(prev => prev.map(server =>
-        server.id === serverId
-          ? { ...server, status: 'ERROR' }
-          : server
-      ));
-    } finally {
-      setActionLoading(null);
-    }
+          success(response.message);
+        } catch (error) {
+          toastError('Cài đặt thất bại');
+          setServers(prev => prev.map(server =>
+            server.id === serverId
+              ? { ...server, status: 'ERROR' }
+              : server
+          ));
+        } finally {
+          setActionLoading(null);
+        }
+      },
+    });
   };
 
   const deleteServer = async (serverId: number, proxyCount: number) => {
     if (proxyCount > 0) {
-      alert('Không thể xóa máy chủ đang có proxy. Vui lòng xóa tất cả proxy trước.');
+      toastError('Không thể xóa máy chủ đang có proxy. Vui lòng xóa tất cả proxy trước.');
       return;
     }
 
-    if (!confirm('Bạn có chắc muốn xóa máy chủ này? Hành động này không thể hoàn tác.')) {
-      return;
-    }
-
-    try {
-      await api.delete(`/api/admin/servers/${serverId}`);
-      setServers(prev => prev.filter(server => server.id !== serverId));
-      alert('Đã xóa máy chủ');
-    } catch (error) {
-      alert('Không thể xóa máy chủ');
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa máy chủ',
+      message: 'Bạn có chắc muốn xóa máy chủ này? Hành động này không thể hoàn tác.',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          await api.delete(`/api/admin/servers/${serverId}`);
+          setServers(prev => prev.filter(server => server.id !== serverId));
+          success('Đã xóa máy chủ');
+        } catch (error) {
+          toastError('Không thể xóa máy chủ');
+        }
+      },
+    });
   };
 
   // Filter servers by search and status
@@ -449,7 +477,7 @@ export default function ServersPage() {
                               setOpenMenuId(null);
                               deleteServer(server.id, server._count.proxies);
                             }}
-                            disabled={server._count.proxies > 0}
+                            // disabled={server._count.proxies > 0}
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:text-gray-400"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -626,7 +654,7 @@ export default function ServersPage() {
                               setOpenMenuId(null);
                               deleteServer(server.id, server._count.proxies);
                             }}
-                            disabled={server._count.proxies > 0}
+                            // disabled={server._count.proxies > 0}
                             className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:text-gray-400"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -670,6 +698,18 @@ export default function ServersPage() {
           </div>
         )}
       </div>
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText="Xác nhận"
+        cancelText="Hủy"
+      />
     </div>
   );
 }

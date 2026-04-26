@@ -44,7 +44,7 @@ export async function GET(
     }
 
     // Verify proxy belongs to current user
-    if (proxy.assignedTo !== payload.userId) {
+    if (proxy.assignedTo !== payload.sub) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 

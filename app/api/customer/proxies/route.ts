@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { verifyAccessToken } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/customer/proxies - List assigned proxies for current user
 export async function GET(request: NextRequest) {
   try {
@@ -16,11 +18,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get all proxies assigned to this customer
+    // Get all proxies assigned to this customer (including expired)
     const proxies = await prisma.proxy.findMany({
       where: {
-        assignedTo: payload.userId,
-        isActive: true
+        assignedTo: payload.sub
       },
       include: {
         server: {
@@ -36,14 +37,8 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Filter out expired proxies
-    const activeProxies = proxies.filter(proxy => {
-      if (!proxy.expiresAt) return true; // No expiry date means never expires
-      return new Date(proxy.expiresAt) > new Date();
-    });
-
     // Format response with connection strings
-    const formattedProxies = activeProxies.map(proxy => {
+    const formattedProxies = proxies.map(proxy => {
       const connectionString = `${proxy.protocol.toLowerCase()}://${proxy.username ? `${proxy.username}:${proxy.password}@` : ''}${proxy.server.host}:${proxy.port}`;
       
       return {

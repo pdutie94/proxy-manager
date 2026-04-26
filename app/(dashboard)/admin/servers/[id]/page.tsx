@@ -4,6 +4,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { useEffect, useState, useRef } from 'react';
+import { useToast } from '@/components/ui/Toast';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import {
   ArrowLeft,
   Server,
@@ -63,6 +65,7 @@ export default function ServerDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuthStore();
+  const { success, error: toastError } = useToast();
   
   const [server, setServer] = useState<Server | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,6 +74,21 @@ export default function ServerDetailPage() {
   const hasFetched = useRef(false);
 
   const serverId = parseInt(params.id as string);
+  
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'primary' | 'warning';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'danger',
+  });
 
   useEffect(() => {
     if (serverId && !hasFetched.current) {
@@ -117,47 +135,58 @@ export default function ServerDetailPage() {
         setServer(prev => prev ? { ...prev, status: 'ACTIVE' } : null);
       }
       
-      alert(response.message);
+      success(response.message);
     } catch (error) {
-      alert('Kiểm tra kết nối thất bại');
+      toastError('Kiểm tra kết nối thất bại');
     } finally {
       setActionLoading('');
     }
   };
 
   const install3Proxy = async () => {
-    if (!confirm('Bạn có chắc muốn cài đặt 3proxy? Quá trình này có thể mất vài phút.')) {
-      return;
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Cài đặt 3proxy',
+      message: 'Bạn có chắc muốn cài đặt 3proxy? Quá trình này có thể mất vài phút.',
+      variant: 'primary',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setActionLoading('install');
+        try {
+          setServer(prev => prev ? { ...prev, status: 'INSTALLING' } : null);
 
-    setActionLoading('install');
-    try {
-      setServer(prev => prev ? { ...prev, status: 'INSTALLING' } : null);
-
-      const response = await api.post<{ success: boolean; message: string; status: string }>(`/api/admin/servers/${serverId}/install`);
-      
-      setServer(prev => prev ? { ...prev, status: response.status as any } : null);
-      
-      alert(response.message);
-    } catch (error) {
-      alert('Cài đặt thất bại');
-      setServer(prev => prev ? { ...prev, status: 'ERROR' } : null);
-    } finally {
-      setActionLoading('');
-    }
+          const response = await api.post<{ success: boolean; message: string; status: string }>(`/api/admin/servers/${serverId}/install`);
+          
+          setServer(prev => prev ? { ...prev, status: response.status as any } : null);
+          
+          success(response.message);
+        } catch (error) {
+          toastError('Cài đặt thất bại');
+          setServer(prev => prev ? { ...prev, status: 'ERROR' } : null);
+        } finally {
+          setActionLoading('');
+        }
+      },
+    });
   };
 
   const deleteServer = async () => {
-    if (!confirm('Bạn có chắc muốn xóa máy chủ này? Hành động này không thể hoàn tác.')) {
-      return;
-    }
-
-    try {
-      await api.delete(`/api/admin/servers/${serverId}`);
-      router.push('/admin/servers');
-    } catch (error) {
-      alert('Không thể xóa máy chủ');
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa máy chủ',
+      message: 'Bạn có chắc muốn xóa máy chủ này? Hành động này không thể hoàn tác.',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          await api.delete(`/api/admin/servers/${serverId}`);
+          success('Đã xóa máy chủ');
+          router.push('/admin/servers');
+        } catch (error) {
+          toastError('Không thể xóa máy chủ');
+        }
+      },
+    });
   };
 
   // Connect to server - test SSH and install 3proxy if needed
@@ -174,15 +203,15 @@ export default function ServerDetailPage() {
 
       if (response.success) {
         setServer(prev => prev ? { ...prev, status: response.status as any } : null);
-        alert(response.message);
+        success(response.message);
         // Refresh server data
         fetchServer();
       } else {
-        alert(response.message || 'Kết nối thất bại');
+        toastError(response.message || 'Kết nối thất bại');
         setServer(prev => prev ? { ...prev, status: response.status as any || 'ERROR' } : null);
       }
     } catch (error: any) {
-      alert(error.message || 'Kết nối thất bại');
+      toastError(error.message || 'Kết nối thất bại');
     } finally {
       setActionLoading('');
     }
@@ -203,14 +232,14 @@ export default function ServerDetailPage() {
       }>(`/api/admin/servers/${serverId}/proxies/check`);
 
       if (response.success) {
-        alert(response.message);
+        success(response.message);
         // Refresh server data to get updated proxy statuses
         fetchServer();
       } else {
-        alert(response.message || 'Kiểm tra thất bại');
+        toastError(response.message || 'Kiểm tra thất bại');
       }
     } catch (error: any) {
-      alert(error.message || 'Kiểm tra thất bại');
+      toastError(error.message || 'Kiểm tra thất bại');
     } finally {
       setActionLoading('');
     }
@@ -240,17 +269,17 @@ export default function ServerDetailPage() {
       }>(`/api/admin/servers/${serverId}/sync-proxies`);
 
       if (response.warning) {
-        alert(`⚠️ ${response.message}\n${response.error || ''}`);
+        toastError(`${response.message}${response.error ? ` - ${response.error}` : ''}`);
       } else if (response.success && response.summary) {
         const { added, updated, unchanged, orphaned } = response.summary;
-        alert(`✅ ${response.message}\n\nChi tiết:\n- Thêm mới: ${added} ports${added > 0 ? ` (${response.summary.details.added.join(', ')})` : ''}\n- Cập nhật: ${updated} ports${updated > 0 ? ` (${response.summary.details.updated.join(', ')})` : ''}\n- Không đổi: ${unchanged} ports\n- Không có trong config: ${orphaned} ports${orphaned > 0 ? ` (${response.summary.details.orphaned.join(', ')})` : ''}`);
+        success(`${response.message} - Thêm: ${added}, Cập nhật: ${updated}, Không đổi: ${unchanged}, Orphaned: ${orphaned}`);
         // Refresh server data to get updated proxy list
         fetchServer();
       } else {
-        alert(response.message || 'Đồng bộ thất bại');
+        toastError(response.message || 'Đồng bộ thất bại');
       }
     } catch (error: any) {
-      alert(error.message || 'Đồng bộ thất bại');
+      toastError(error.message || 'Đồng bộ thất bại');
     } finally {
       setActionLoading('');
     }
@@ -658,6 +687,18 @@ export default function ServerDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText="Xác nhận"
+        cancelText="Hủy"
+      />
     </div>
   );
 }

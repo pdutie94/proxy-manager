@@ -3,7 +3,9 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useToast } from '@/components/ui/Toast';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 interface Proxy {
   id: number;
@@ -38,6 +40,7 @@ export default function ServerProxiesPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuthStore();
+  const { success, error: toastError } = useToast();
   
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -47,16 +50,34 @@ export default function ServerProxiesPage() {
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [selectedProxy, setSelectedProxy] = useState<Proxy | null>(null);
   const [actionLoading, setActionLoading] = useState('');
+  
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'primary' | 'warning';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'danger',
+  });
 
   const serverId = parseInt(params.id as string);
+  const hasFetched = useRef(false);
 
   useEffect(() => {
-    if (serverId) {
+    if (serverId && !hasFetched.current) {
+      hasFetched.current = true;
       fetchProxies();
       fetchCustomers();
     }
   }, [serverId]);
 
+  
   const fetchProxies = async () => {
     try {
       const response = await api.get<{ proxies: Proxy[] }>(`/api/admin/servers/${serverId}/proxies`);
@@ -84,28 +105,52 @@ export default function ServerProxiesPage() {
       const response = await api.post<{ proxy: Proxy }>(`/api/admin/servers/${serverId}/proxies`, proxyData);
       setProxies(prev => [...prev, response.proxy]);
       setShowCreateForm(false);
-      alert('Proxy created successfully');
+      success('Đã tạo proxy thành công');
     } catch (error) {
       console.error('Create proxy failed:', error);
-      alert('Failed to create proxy');
+      toastError('Không thể tạo proxy');
     } finally {
       setActionLoading('');
     }
   };
 
   const deleteProxy = async (proxyId: number, port: number) => {
-    if (!confirm('Are you sure you want to delete this proxy?')) {
-      return;
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa proxy',
+      message: `Bạn có chắc muốn xóa proxy port ${port}?`,
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setActionLoading(`delete-${proxyId}`);
+        try {
+          await api.delete(`/api/admin/servers/${serverId}/proxies/${port}`);
+          setProxies(prev => prev.filter(p => p.id !== proxyId));
+          success('Đã xóa proxy');
+        } catch (error) {
+          console.error('Delete proxy failed:', error);
+          toastError('Không thể xóa proxy');
+        } finally {
+          setActionLoading('');
+        }
+      },
+    });
+  };
 
-    setActionLoading(`delete-${proxyId}`);
+  const checkExpiredProxies = async () => {
+    setActionLoading('checkExpired');
     try {
-      await api.delete(`/api/admin/servers/${serverId}/proxies/${port}`);
-      setProxies(prev => prev.filter(p => p.id !== proxyId));
-      alert('Proxy deleted successfully');
+      const response = await api.post<{ disabled: number; message: string }>('/api/admin/proxies/check-expired');
+      
+      if (response.disabled > 0) {
+        success(`Đã thu hồi ${response.disabled} proxy hết hạn`);
+        fetchProxies();
+      } else {
+        success('Không có proxy nào hết hạn cần thu hồi');
+      }
     } catch (error) {
-      console.error('Delete proxy failed:', error);
-      alert('Failed to delete proxy');
+      console.error('Check expired proxies failed:', error);
+      toastError('Không thể kiểm tra proxy hết hạn');
     } finally {
       setActionLoading('');
     }
@@ -123,39 +168,44 @@ export default function ServerProxiesPage() {
       
       setShowAssignForm(false);
       setSelectedProxy(null);
-      alert('Proxy assigned successfully');
+      success('Đã gán proxy cho khách hàng');
     } catch (error) {
       console.error('Assign proxy failed:', error);
-      alert('Failed to assign proxy');
+      toastError('Không thể gán proxy');
     } finally {
       setActionLoading('');
     }
   };
 
-  const unassignProxy = async (proxyId: number) => {
-    if (!confirm('Are you sure you want to unassign this proxy?')) {
-      return;
-    }
-
-    setActionLoading(`unassign-${proxyId}`);
-    try {
-      const response = await api.request<{ proxy: Proxy }>(`/api/admin/servers/${serverId}/proxies/assign`, {
-        method: 'DELETE',
-        body: JSON.stringify({ proxyId })
-      });
-      
-      // Update proxy in list
-      setProxies(prev => prev.map(p => 
-        p.id === response.proxy.id ? response.proxy : p
-      ));
-      
-      alert('Proxy unassigned successfully');
-    } catch (error) {
-      console.error('Unassign proxy failed:', error);
-      alert('Failed to unassign proxy');
-    } finally {
-      setActionLoading('');
-    }
+  const unassignProxy = async (proxyId: number, port: number) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Hủy gán proxy',
+      message: `Bạn có chắc muốn hủy gán proxy port ${port}?`,
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        setActionLoading(`unassign-${proxyId}`);
+        try {
+          const response = await api.request<{ proxy: Proxy }>(`/api/admin/servers/${serverId}/proxies/assign`, {
+            method: 'DELETE',
+            body: JSON.stringify({ proxyId })
+          });
+          
+          // Update proxy in list
+          setProxies(prev => prev.map(p => 
+            p.id === response.proxy.id ? response.proxy : p
+          ));
+          
+          success('Đã hủy gán proxy');
+        } catch (error) {
+          console.error('Unassign proxy failed:', error);
+          toastError('Không thể hủy gán proxy');
+        } finally {
+          setActionLoading('');
+        }
+      },
+    });
   };
 
   const getProtocolColor = (protocol: string) => {
@@ -193,6 +243,26 @@ export default function ServerProxiesPage() {
             <h1 className="text-2xl font-bold text-gray-900">Proxy Management</h1>
           </div>
           <div className="flex space-x-2">
+            <button
+              onClick={checkExpiredProxies}
+              disabled={actionLoading === 'checkExpired'}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 lg:px-4 lg:py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50"
+              title="Kiểm tra và thu hồi proxy hết hạn"
+            >
+              {actionLoading === 'checkExpired' ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  Đang kiểm tra...
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Kiểm tra hết hạn
+                </>
+              )}
+            </button>
             <button
               onClick={() => setShowCreateForm(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 lg:px-4 lg:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
@@ -326,7 +396,7 @@ export default function ServerProxiesPage() {
                           </button>
                         ) : (
                           <button
-                            onClick={() => unassignProxy(proxy.id)}
+                            onClick={() => unassignProxy(proxy.id, proxy.port)}
                             disabled={actionLoading.includes(`unassign-${proxy.id}`)}
                             className="text-orange-600 hover:text-orange-900 disabled:opacity-50"
                           >
@@ -349,6 +419,18 @@ export default function ServerProxiesPage() {
           </div>
         )}
       </div>
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText="Xác nhận"
+        cancelText="Hủy"
+      />
     </div>
   );
 }
@@ -441,6 +523,16 @@ function CreateProxyForm({ onSubmit, onCancel, loading }: {
   );
 }
 
+// Preset durations for rental
+const DURATION_PRESETS = [
+  { label: '1 ngày', days: 1 },
+  { label: '3 ngày', days: 3 },
+  { label: '1 tuần', days: 7 },
+  { label: '1 tháng', days: 30 },
+  { label: '3 tháng', days: 90 },
+  { label: 'Tùy chọn', days: null },
+];
+
 // Assign Proxy Form Component
 function AssignProxyForm({ proxy, customers, onSubmit, onCancel, loading }: {
   proxy: Proxy;
@@ -455,6 +547,29 @@ function AssignProxyForm({ proxy, customers, onSubmit, onCancel, loading }: {
     username: '',
     password: '',
   });
+  const [selectedPreset, setSelectedPreset] = useState<string>('');
+
+  const handlePresetChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSelectedPreset(value);
+
+    if (value === 'custom') {
+      // Keep current date for manual editing
+      return;
+    }
+
+    const days = parseInt(value);
+    if (!isNaN(days)) {
+      const date = new Date();
+      date.setDate(date.getDate() + days);
+      setFormData(prev => ({ ...prev, expiresAt: date.toISOString().split('T')[0] }));
+    }
+  };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData(prev => ({ ...prev, expiresAt: e.target.value }));
+    setSelectedPreset('custom');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -467,19 +582,19 @@ function AssignProxyForm({ proxy, customers, onSubmit, onCancel, loading }: {
   return (
     <div className="mb-6 bg-white shadow rounded-lg p-6">
       <h2 className="text-lg font-medium text-gray-900 mb-4">
-        Assign Proxy {proxy.port} ({proxy.protocol})
+        Gán Proxy {proxy.port} ({proxy.protocol})
       </h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Customer *</label>
+            <label className="block text-sm font-medium text-gray-700">Khách hàng *</label>
             <select
               required
               value={formData.customerId}
               onChange={(e) => setFormData(prev => ({ ...prev, customerId: e.target.value }))}
               className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
             >
-              <option value="">Select a customer</option>
+              <option value="">Chọn khách hàng</option>
               {customers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {customer.name} ({customer.email})
@@ -488,32 +603,45 @@ function AssignProxyForm({ proxy, customers, onSubmit, onCancel, loading }: {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Expiry Date (optional)</label>
+            <label className="block text-sm font-medium text-gray-700">Thời hạn thuê</label>
+            <select
+              value={selectedPreset}
+              onChange={handlePresetChange}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm mb-2"
+            >
+              <option value="">Chọn thời hạn</option>
+              {DURATION_PRESETS.map((preset) => (
+                <option key={preset.label} value={preset.days ?? 'custom'}>
+                  {preset.label}
+                </option>
+              ))}
+            </select>
             <input
               type="date"
               value={formData.expiresAt}
-              onChange={(e) => setFormData(prev => ({ ...prev, expiresAt: e.target.value }))}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              onChange={handleDateChange}
+              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              placeholder="Hoặc chọn ngày cụ thể"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Username (optional)</label>
+            <label className="block text-sm font-medium text-gray-700">Username (tùy chọn)</label>
             <input
               type="text"
               value={formData.username}
               onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
               className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              placeholder="Authentication username"
+              placeholder="Tên đăng nhập proxy"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Password (optional)</label>
+            <label className="block text-sm font-medium text-gray-700">Password (tùy chọn)</label>
             <input
               type="password"
               value={formData.password}
               onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
               className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              placeholder="Authentication password"
+              placeholder="Mật khẩu proxy"
             />
           </div>
         </div>
@@ -523,14 +651,14 @@ function AssignProxyForm({ proxy, customers, onSubmit, onCancel, loading }: {
             onClick={onCancel}
             className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
-            Cancel
+            Hủy
           </button>
           <button
             type="submit"
             disabled={loading}
             className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
-            {loading ? 'Assigning...' : 'Assign Proxy'}
+            {loading ? 'Đang gán...' : 'Gán Proxy'}
           </button>
         </div>
       </form>

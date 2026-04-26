@@ -3,6 +3,8 @@
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { useEffect, useState, useRef } from 'react';
+import { useToast } from '@/components/ui/Toast';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import {
   Users,
   Plus,
@@ -37,6 +39,7 @@ interface User {
 
 export default function AdminUsersPage() {
   const { user } = useAuthStore();
+  const { success, error: toastError } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -52,6 +55,21 @@ export default function AdminUsersPage() {
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const hasFetched = useRef(false);
   const itemsPerPage = 10;
+  
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant: 'danger' | 'primary' | 'warning';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'danger',
+  });
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -106,8 +124,9 @@ export default function AdminUsersPage() {
       const response = await api.post<{ user: User }>('/api/admin/users', userData);
       setUsers(prev => [...prev, response.user]);
       setShowCreateForm(false);
+      success('Đã tạo người dùng thành công');
     } catch (error) {
-      alert('Không thể tạo người dùng');
+      toastError('Không thể tạo người dùng');
     }
   };
 
@@ -117,22 +136,29 @@ export default function AdminUsersPage() {
       setUsers(prev => prev.map(user =>
         user.id === userId ? response.user : user
       ));
+      success(`Đã ${isActive ? 'kích hoạt' : 'vô hiệu hóa'} người dùng`);
     } catch (error) {
-      alert('Không thể cập nhật trạng thái');
+      toastError('Không thể cập nhật trạng thái');
     }
   };
 
-  const deleteUser = async (userId: number) => {
-    if (!confirm('Bạn có chắc muốn xóa người dùng này?')) {
-      return;
-    }
-
-    try {
-      await api.delete(`/api/admin/users/${userId}`);
-      setUsers(prev => prev.filter(user => user.id !== userId));
-    } catch (error) {
-      alert('Không thể xóa người dùng');
-    }
+  const deleteUser = async (userId: number, userName: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Xóa người dùng',
+      message: `Bạn có chắc muốn xóa người dùng "${userName}"? Hành động này không thể hoàn tác.`,
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        try {
+          await api.delete(`/api/admin/users/${userId}`);
+          setUsers(prev => prev.filter(user => user.id !== userId));
+          success('Đã xóa người dùng');
+        } catch (error) {
+          toastError('Không thể xóa người dùng');
+        }
+      },
+    });
   };
 
   // Filter users by search, role, and status
@@ -380,12 +406,12 @@ export default function AdminUsersPage() {
                           <button
                             onClick={() => {
                               setOpenMenuId(null);
-                              deleteUser(userItem.id);
+                              deleteUser(userItem.id, userItem.name);
                             }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
                           >
                             <Trash2 className="h-4 w-4" />
-                            Xóa
+                            Xóa người dùng
                           </button>
                         )}
                       </div>
@@ -511,7 +537,7 @@ export default function AdminUsersPage() {
                           <button
                             onClick={() => {
                               setOpenMenuId(null);
-                              deleteUser(userItem.id);
+                              deleteUser(userItem.id, userItem.name);
                             }}
                             className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                           >
@@ -557,6 +583,18 @@ export default function AdminUsersPage() {
           </div>
         )}
       </div>
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant}
+        confirmText="Xác nhận"
+        cancelText="Hủy"
+      />
     </div>
   );
 }
