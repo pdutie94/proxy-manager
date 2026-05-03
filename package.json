@@ -2,14 +2,19 @@
   "name": "proxy-manager",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ],
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "dev": "npm run dev --workspace=@proxy-manager/dashboard",
+    "dev:api": "npm run start:dev --workspace=@proxy-manager/api",
+    "dev:agent": "npm run start:dev --workspace=@proxy-manager/agent",
+    "build": "npm run build --workspaces",
+    "db:generate": "prisma generate --schema=libs/db/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=libs/db/prisma/schema.prisma",
+    "db:studio": "prisma studio --schema=libs/db/prisma/schema.prisma",
+    "lint": "npm run lint --workspaces"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

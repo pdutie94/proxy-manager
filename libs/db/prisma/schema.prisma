@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum NodeStatus {
+  active
+  suspended
+  offline
+}
+
+enum ProxyStatus {
+  pending
+  active
+  error
+  expired
+  suspended
+}
+
+enum IpStatus {
+  free
+  in_use
+  cooling
+  banned
+}
+
+enum PortStatus {
+  free
+  used
+}
+
+enum EventOutboxStatus {
+  pending
+  sent
+  failed
+  dead
+}
+
+// Node (renamed from Server)
+model Node {
+  id          Int             @id @default(autoincrement())
+  name        String
+  ipAddress   String          @map("ip_address")
+  region      String
+  status      NodeStatus      @default(offline)
+  maxPorts    Int             @default(60000) @map("max_ports")
+  ipv6Subnet  String?         @map("ipv6_subnet") // /64 subnet prefix
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  
+  // Relations
+  proxies     Proxy[]
+  ipPools     IpPool[]
+  ports       Port[]
+  heartbeats  NodeHeartbeat[]
+  
+  @@map("nodes")
+}
+
+// IPv6 Pool
+model IpPool {
+  id             BigInt    @id @default(autoincrement())
+  nodeId         Int       @map("node_id")
+  node           Node      @relation(fields: [nodeId], references: [id])
+  ipv6           String    @db.VarChar(64)
+  status         IpStatus  @default(free)
+  cooldownUntil  DateTime? @map("cooldown_until")
+  lastUsedAt     DateTime? @map("last_used_at")
+  usageCount     Int       @default(0) @map("usage_count")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  
+  // Relation
+  proxy          Proxy?
+  
+  @@index([nodeId, status, cooldownUntil])
+  @@map("ip_pools")
+}
+
+// Port Pool
+model Port {
+  id          BigInt     @id @default(autoincrement())
+  nodeId      Int        @map("node_id")
+  node        Node       @relation(fields: [nodeId], references: [id])
+  port        Int
+  status      PortStatus @default(free)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  
+  // Relation
+  proxy       Proxy?
+  
+  @@unique([nodeId, port])
+  @@index([nodeId, status])
+  @@map("ports")
+}
+
+// Proxy with IpPool + Port allocation
+model Proxy {
+  id              BigInt      @id @default(autoincrement())
+  userId          Int         @map("user_id")
+  nodeId          Int         @map("node_id")
+  node            Node        @relation(fields: [nodeId], references: [id])
+  
+  ipPoolId        BigInt      @unique @map("ip_pool_id")
+  ipPool          IpPool      @relation(fields: [ipPoolId], references: [id])
+  
+  portId          BigInt      @unique @map("port_id")
+  port            Port        @relation(fields: [portId], references: [id])
+  
+  username        String      @db.VarChar(50)
+  password        String      @db.VarChar(50)
+  
+  status          ProxyStatus @default(pending)
+  lastConfigHash  String?     @map("last_config_hash") // For idempotency
+  version         Int         @default(1) // For event ordering
+  expiresAt       DateTime    @map("expires_at")
+  deletedAt       DateTime?   @map("deleted_at") // Soft delete
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  
+  // Relations
+  trafficStats    TrafficStat[]
+  
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("proxies")
+}
+
+// Traffic Statistics (separate table for bandwidth tracking)
+model TrafficStat {
+  id          BigInt   @id @default(autoincrement())
+  proxyId     BigInt   @map("proxy_id")
+  proxy       Proxy    @relation(fields: [proxyId], references: [id])
+  bytesIn     BigInt   @map("bytes_in")
+  bytesOut    BigInt   @map("bytes_out")
+  recordedAt  DateTime @map("recorded_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  @@unique([proxyId, recordedAt])
+  @@index([proxyId, recordedAt])
+  @@map("traffic_stats")
+}
+
+// Node Heartbeat
+model NodeHeartbeat {
+  nodeId      Int       @id @map("node_id")
+  node        Node      @relation(fields: [nodeId], references: [id])
+  lastSeen    DateTime  @map("last_seen")
+  metrics     Json?     // CPU, memory, bandwidth usage
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  @@map("node_heartbeats")
+}
+
+// Event Outbox for reliable delivery
+model EventOutbox {
+  id            String            @id @default(uuid())
+  type          String            // PROXY_CREATE, PROXY_DELETE, etc.
+  payload       Json              // Event data
+  status        EventOutboxStatus @default(pending)
+  retryCount    Int               @default(0) @map("retry_count")
+  errorMessage  String?           @map("error_message")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  sentAt        DateTime?         @map("sent_at")
+  
+  @@index([status, retryCount])
+  @@index([createdAt])
+  @@map("event_outbox")
+}
+
+// Idempotency Keys for API
+model IdempotencyKey {
+  id          String    @id @default(uuid())
+  key         String    @unique
+  response    Json      // Cached response
+  expiresAt   DateTime  @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  @@index([key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+// Audit Log
+model AuditLog {
+  id          BigInt    @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  action      String    // CREATE, DELETE, RENEW
+  entityType  String    @map("entity_type") // PROXY, NODE, etc.
+  entityId    BigInt    @map("entity_id")
+  details     Json?     // Additional context
+  ipAddress   String?   @map("ip_address")
+  userAgent   String?   @map("user_agent")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
