@@ -97,13 +97,13 @@ Production-ready proxy management system with NestJS API, Next.js Dashboard, and
 
 ---
 
-## Phase 3: Node Agent (apps/agent) - ✅ COMPLETED
+## Phase 3: Node Agent (apps/agent) - ✅ COMPLETED (2026-05-04)
 
 ### 3.1 Bootstrap
 - [x] `npm install ioredis` (Redis Streams)
 - [x] `npm install p-queue` (concurrency)
 - [x] `npm install p-debounce` (batching)
-- [ ] ~~`better-sqlite3`~~ → Thay bằng file-based buffer
+- [x] Replaced `better-sqlite3` with file-based buffer
 - [x] `npm install node-cron` (scheduling)
 - [x] `npm install express` (health server)
 - [x] Setup main.ts
@@ -146,30 +146,30 @@ Production-ready proxy management system with NestJS API, Next.js Dashboard, and
 - [x] Reload 3proxy
 
 #### PeriodicReconciler
-- [ ] Cron every 5-10 minutes
-- [ ] Fetch DB state → compare with files
-- [ ] Fix drift (self-healing)
+- [x] Cron every 5-10 minutes
+- [x] Fetch DB state → rebuild shard config files
+- [x] Fix drift (self-healing)
 
 #### BandwidthCollector
-- [ ] Read 3proxy logs
-- [ ] Buffer to SQLite (local)
-- [ ] Batch report every 30s
-- [ ] Idempotent insert (handle duplicate)
-- [ ] Resend unsent on restart
+- [x] Read 3proxy logs
+- [x] Buffer to local file storage
+- [x] Batch report every 30s
+- [x] Idempotent insert (handle duplicate)
+- [x] Resend unsent on restart
 
 #### HealthServer
 - [x] `GET /health` endpoint
-- [ ] Return: `{ lastEventTime, queueLength, proxyStatus, activeProxies, uptime }`
+- [x] Return: `{ lastEventTime, queueLength, proxyStatus, activeProxies, uptime }`
 
 #### MetricsCollector
-- [ ] Track: configUpdates/sec, errorCount, bandwidthBytes
+- [x] Track: configUpdates/sec, errorCount, bandwidthBytes
 
 ### 3.3 Configuration
-- [ ] `DRY_RUN=true` - process but don't apply
-- [ ] `NODE_ID` - filter events
-- [ ] `REDIS_URL`
-- [ ] `API_URL`
-- [ ] `HMAC_SECRET` - verify event signature
+- [x] `DRY_RUN=true` - process but don't apply
+- [x] `NODE_ID` - filter events
+- [x] `REDIS_URL`
+- [x] `API_URL`
+- [x] `HMAC_SECRET` - verify event signature
 
 ### 3.4 Event Processing Flow
 ```
@@ -177,7 +177,18 @@ Receive Event → Verify HMAC → Check Idempotency → Priority Queue →
 Debounce Batch → Render Config → Safe Update → ACK → Mark Applied
 ```
 
-**Deliverable**: Agent starts, connects Redis, ready to consume
+- [x] Receive Event: XREADGROUP from Redis Streams
+- [x] Verify HMAC: SHA256 signature validation
+- [x] Check Idempotency: Compare configHash + version ordering
+- [x] Priority Queue: DELETE (100) > EXPIRE (90) > CREATE (50) > RENEW (40)
+- [x] Debounce Batch: 300ms debounce per shard, max 2s wait
+- [x] Render Config: 256-shard 3proxy config generation
+- [x] Safe Update: Atomic write + backup + validation + reload
+- [x] ACK Event: Redis XACK after successful apply
+- [x] Mark Applied: POST to API with configHash
+
+**Deliverable**: Agent starts, connects Redis, processes events with priority queue ✅
+**Documentation**: [EVENT_FLOW.md](apps/agent/EVENT_FLOW.md) with complete flow description
 
 ---
 
@@ -268,7 +279,7 @@ Debounce Batch → Render Config → Safe Update → ACK → Mark Applied
 |-------|-----------------|--------|
 | 1 | Monorepo structure + DB schema | ✅ Done (2025-05-03) |
 | 2 | NestJS API with all endpoints | ✅ Done & Tested (2025-05-04) |
-| 3 | Node Agent consuming events | ✅ Done & Tested (2025-05-04) |
+| 3 | Node Agent consuming events | ✅ Done & Tested (2026-05-04) |
 | 4 | Dashboard proxying to API | ⬜ Pending |
 | 5 | E2E tests passing | ⬜ Pending |
 | 6 | Production deploy + monitoring | ⬜ Pending |

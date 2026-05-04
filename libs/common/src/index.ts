@@ -12,7 +12,7 @@ export interface ProxyEvent {
   id: string;
   type: ProxyEventType;
   nodeId: number;
-  proxyId: bigint;
+  proxyId: number;
   ipv6?: string;
   port?: number;
   username?: string;
@@ -22,6 +22,7 @@ export interface ProxyEvent {
   version: number;
   configHash: string;
   correlationId: string;
+  signature?: string;
 }
 
 // Node Selection Weights

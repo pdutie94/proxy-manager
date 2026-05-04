@@ -1,3 +1,5 @@
+import PQueue from 'p-queue';
+import pDebounce from 'p-debounce';
 import { ProxyEvent, getShardIndex, CONFIG } from '@proxy-manager/common';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -18,6 +20,8 @@ interface ProxyConfig {
 export class ConfigRenderer {
   private configDir = '/etc/3proxy/conf.d';
   private proxies = new Map<number, ProxyConfig>();
+  private taskQueue = new PQueue({ concurrency: 1 });
+  private scheduledUpdates = new Map<string, (...args: any[]) => Promise<void>>();
 
   constructor() {
     // Ensure config directory exists
@@ -36,12 +40,12 @@ export class ConfigRenderer {
     };
 
     this.proxies.set(Number(event.proxyId), config);
-    await this.updateShard(config.port);
+    this.scheduleShardUpdate(getShardIndex(config.port));
   }
 
   async removeProxy(proxyId: number, port: number): Promise<void> {
     this.proxies.delete(proxyId);
-    await this.updateShard(port);
+    this.scheduleShardUpdate(getShardIndex(port));
   }
 
   async rebuildShard(shard: string, proxies: any[]): Promise<void> {
@@ -102,17 +106,36 @@ export class ConfigRenderer {
     }
   }
 
+  private scheduleShardUpdate(shard: string): void {
+    if (!this.scheduledUpdates.has(shard)) {
+      const debouncedUpdater = pDebounce(async () => {
+        const configs = this.getShardConfigs(shard);
+        await this.taskQueue.add(() => this.rebuildShard(shard, configs));
+      }, CONFIG.DEBOUNCE_MS);
+
+      this.scheduledUpdates.set(shard, debouncedUpdater);
+    }
+
+    const updater = this.scheduledUpdates.get(shard)!;
+    void updater().catch(err => console.error(`Failed to update shard ${shard}:`, err));
+  }
+
+  private getShardConfigs(shard: string) {
+    return Array.from(this.proxies.values())
+      .filter(p => getShardIndex(p.port) === shard)
+      .map(c => ({
+        port: { port: c.port },
+        ipPool: { ipv6: c.ipv6 },
+        username: c.username,
+        password: c.password,
+      }));
+  }
+
   private async updateShard(port: number): Promise<void> {
     const shard = getShardIndex(port);
-    const configs = Array.from(this.proxies.values())
-      .filter(p => getShardIndex(p.port) === shard);
+    const configs = this.getShardConfigs(shard);
 
-    await this.rebuildShard(shard, configs.map(c => ({
-      port: { port: c.port },
-      ipPool: { ipv6: c.ipv6 },
-      username: c.username,
-      password: c.password,
-    })));
+    await this.rebuildShard(shard, configs);
   }
 
   private async reload3proxy(): Promise<void> {

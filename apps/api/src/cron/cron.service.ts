@@ -39,7 +39,7 @@ export class CronService {
       await this.eventService.publish({
         type: ProxyEventType.PROXY_EXPIRE,
         nodeId: proxy.nodeId,
-        proxyId: proxy.id,
+        proxyId: Number(proxy.id),
         version: proxy.version + 1,
         configHash: '',
         correlationId: generateCorrelationId(),
@@ -66,7 +66,7 @@ export class CronService {
       await this.eventService.publish({
         type: ProxyEventType.PROXY_CREATE,
         nodeId: proxy.nodeId,
-        proxyId: proxy.id,
+        proxyId: Number(proxy.id),
         version: proxy.version,
         configHash: proxy.lastConfigHash || '',
         correlationId: generateCorrelationId(),

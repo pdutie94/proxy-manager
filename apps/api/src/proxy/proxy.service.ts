@@ -66,7 +66,7 @@ export class ProxyService {
     await this.eventService.publish({
       type: ProxyEventType.PROXY_CREATE,
       nodeId: proxy.nodeId,
-      proxyId: proxy.id,
+      proxyId: Number(proxy.id),
       ipv6: allocation.ipv6,
       port: allocation.port,
       username: proxy.username,
@@ -133,7 +133,7 @@ export class ProxyService {
     await this.eventService.publish({
       type: ProxyEventType.PROXY_DELETE,
       nodeId: proxy.nodeId,
-      proxyId: proxy.id,
+      proxyId: Number(proxy.id),
       version: proxy.version + 1,
       configHash: '',
       correlationId: generateCorrelationId(),
@@ -158,7 +158,7 @@ export class ProxyService {
     await this.eventService.publish({
       type: ProxyEventType.PROXY_RENEW,
       nodeId: proxy.nodeId,
-      proxyId: proxy.id,
+      proxyId: Number(proxy.id),
       expiresAt,
       version: proxy.version + 1,
       configHash: proxy.lastConfigHash || '',

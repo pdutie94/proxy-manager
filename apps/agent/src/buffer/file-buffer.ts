@@ -1,8 +1,8 @@
-import { readFile, writeFile } from 'fs/promises';
+import { mkdir, readFile, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
-interface BufferEntry {
+export interface BufferEntry {
   proxyId: number;
   bytesIn: number;
   bytesOut: number;
@@ -16,9 +16,20 @@ export class FileBuffer {
     this.filePath = join(dataDir, 'bandwidth-buffer.json');
   }
 
+  private async ensureDirectory(): Promise<void> {
+    const dir = dirname(this.filePath);
+    await mkdir(dir, { recursive: true });
+  }
+
   async append(entry: BufferEntry): Promise<void> {
     const entries = await this.readAll();
+    const exists = entries.some(e => e.proxyId === entry.proxyId && e.recordedAt === entry.recordedAt);
+    if (exists) {
+      return;
+    }
+
     entries.push(entry);
+    await this.ensureDirectory();
     await writeFile(this.filePath, JSON.stringify(entries, null, 2), 'utf8');
   }
 

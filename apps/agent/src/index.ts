@@ -1,9 +1,9 @@
 import Redis from 'ioredis';
 import axios from 'axios';
 import { EventConsumer } from './events/consumer';
-import { ConfigRenderer } from './config/renderer';
 import { HealthServer } from './health/server';
-import { CONFIG } from '@proxy-manager/common';
+import { BandwidthCollector } from './events/bandwidth-collector';
+import { MetricsCollector } from './events/metrics-collector';
 import { MockRedis } from './redis/mock-redis';
 
 const NODE_ID = parseInt(process.env.NODE_ID || '1');
@@ -15,27 +15,39 @@ async function main() {
   console.log(`Starting Proxy Agent for Node ${NODE_ID}`);
   console.log(`DRY_RUN: ${DRY_RUN}`);
 
-  // Use Mock Redis for development
-  const redis = (process.env.NODE_ENV === 'development' && !process.env.REDIS_URL) 
-    ? new MockRedis() as any 
+  const redis = (process.env.NODE_ENV === 'development' && !process.env.REDIS_URL)
+    ? new MockRedis() as any
     : new Redis(REDIS_URL);
-    
+
   const api = axios.create({ baseURL: API_URL });
 
-  // Start health server
-  const healthServer = new HealthServer(redis);
+  const status = {
+    lastEventTime: null as string | null,
+    activeProxies: 0,
+  };
+
+  const metrics = new MetricsCollector();
+
+  const healthServer = new HealthServer(redis, async () => ({
+    proxyStatus: {
+      lastEventTime: status.lastEventTime,
+      activeProxies: status.activeProxies,
+    },
+    metrics: metrics.getSnapshot(),
+  }));
   await healthServer.start(3002);
 
-  // Start event consumer
   const consumer = new EventConsumer(redis, api, {
     nodeId: NODE_ID,
     dryRun: DRY_RUN,
+    status,
+    metrics,
   });
 
-  // Startup reconciliation
-  await consumer.reconcile();
+  const bandwidthCollector = new BandwidthCollector(api, metrics);
+  await bandwidthCollector.start();
 
-  // Start consuming events
+  await consumer.reconcile();
   await consumer.start();
 
   console.log('Agent ready');
