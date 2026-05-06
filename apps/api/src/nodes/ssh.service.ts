@@ -185,6 +185,10 @@ export class SshService {
           command: 'mkdir -p /etc/3proxy/conf.d /var/log/3proxy /var/run/3proxy /opt/3proxy',
         },
         {
+          name: 'Create log file with permissions',
+          command: 'touch /var/log/3proxy/3proxy.log && chmod 666 /var/log/3proxy/3proxy.log',
+        },
+        {
           name: 'Create base 3proxy config',
           command: [
             'cat > /etc/3proxy/3proxy.cfg << \'CFGEOF\'',
