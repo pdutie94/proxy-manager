@@ -1,5 +1,5 @@
 import { NodeSSH } from 'node-ssh';
-import { Server } from '@prisma/client';
+import { Node } from '@prisma/client';
 
 export interface SSHConnectionResult {
   success: boolean;

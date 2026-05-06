@@ -10,11 +10,23 @@
     "dev": "npm run dev --workspace=@proxy-manager/dashboard",
     "dev:api": "npm run start:dev --workspace=@proxy-manager/api",
     "dev:agent": "npm run start:dev --workspace=@proxy-manager/agent",
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:dashboard\" \"npm run dev:agent\"",
     "build": "npm run build --workspaces",
-    "db:generate": "prisma generate --schema=libs/db/prisma/schema.prisma",
-    "db:migrate": "prisma migrate dev --schema=libs/db/prisma/schema.prisma",
-    "db:studio": "prisma studio --schema=libs/db/prisma/schema.prisma",
-    "lint": "npm run lint --workspaces"
+    "db:generate": "cd libs/db && npx prisma generate --schema=prisma/schema.prisma",
+    "db:migrate": "cd libs/db && npx prisma migrate dev --schema=prisma/schema.prisma",
+    "db:studio": "cd libs/db && npx prisma studio --schema=prisma/schema.prisma",
+    "db:reset": "cd libs/db && npx prisma migrate reset --schema=prisma/schema.prisma",
+    "lint": "npm run lint --workspaces",
+    "test": "node scripts/run-all-tests.js",
+    "test:e2e": "node scripts/test-e2e.js",
+    "test:edge": "node scripts/test-edge-cases.js",
+    "test:failover": "node scripts/test-failover.js",
+    "test:quick": "node scripts/run-all-tests.js --quick",
+    "verify": "node scripts/verify-services.js",
+    "setup": "chmod +x scripts/dev-setup.sh && ./scripts/dev-setup.sh",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
@@ -42,6 +54,8 @@
     "autoprefixer": "^10.0.1",
     "postcss": "^8",
     "tailwindcss": "^3.3.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "concurrently": "^8.2.2",
+    "ioredis": "^5.3.2"
   }
 }

@@ -9,55 +9,120 @@ datasource db {
 
 // Enums
 enum NodeStatus {
-  active
-  suspended
-  offline
+  PENDING
+  INSTALLING
+  ACTIVE
+  ERROR
+  OFFLINE
+  SUSPENDED
+}
+
+enum Role {
+  ADMIN
+  CUSTOMER
+}
+
+enum NotificationTargetType {
+  ALL
+  SPECIFIC
+}
+
+enum NotificationType {
+  SYSTEM
+  PROXY_EXPIRING_SOON
+  PROXY_EXPIRED
+  PROXY_RENEWED
+  ADMIN_MESSAGE
+}
+
+model User {
+  id            Int             @id @default(autoincrement())
+  email         String          @unique
+  password      String          @db.VarChar(255)
+  name          String
+  role          Role            @default(CUSTOMER)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  proxies       Proxy[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique @db.VarChar(255)
+  userId    Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 enum ProxyStatus {
-  pending
-  active
-  error
-  expired
-  suspended
+  PENDING
+  ACTIVE
+  ERROR
+  EXPIRED
+  SUSPENDED
 }
 
 enum IpStatus {
-  free
-  in_use
-  cooling
-  banned
+  FREE
+  IN_USE
+  COOLING
+  BANNED
 }
 
 enum PortStatus {
-  free
-  used
+  FREE
+  USED
+}
+
+enum Protocol {
+  HTTP
+  SOCKS4
+  SOCKS5
 }
 
 enum EventOutboxStatus {
-  pending
-  sent
-  failed
-  dead
+  PENDING
+  SENT
+  FAILED
+  DEAD
 }
 
 // Node (renamed from Server)
 model Node {
-  id          Int             @id @default(autoincrement())
-  name        String
-  ipAddress   String          @map("ip_address")
-  region      String
-  status      NodeStatus      @default(offline)
-  maxPorts    Int             @default(60000) @map("max_ports")
-  ipv6Subnet  String?         @map("ipv6_subnet") // /64 subnet prefix
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @updatedAt @map("updated_at")
+  id              Int             @id @default(autoincrement())
+  name            String
+  host            String?         @db.VarChar(255)
+  ipAddress       String          @map("ip_address")
+  regionId        Int?            @map("region_id")
+  sshPort         Int             @default(22) @map("ssh_port")
+  sshUsername     String?         @map("ssh_username")
+  sshPassword     String?         @db.VarChar(255) @map("ssh_password")
+  sshPrivateKey   String?         @db.Text        @map("ssh_private_key")
+  sshKeyPassphrase String?        @db.VarChar(255) @map("ssh_key_passphrase")
+  proxyPortStart  Int             @default(10000) @map("proxy_port_start")
+  proxyPortEnd    Int             @default(20000) @map("proxy_port_end")
+  is3ProxyInstalled Boolean       @default(false) @map("is_3proxy_installed")
+  status          NodeStatus      @default(OFFLINE)
+  maxPorts        Int             @default(60000) @map("max_ports")
+  ipv6Subnet      String?         @map("ipv6_subnet") // /64 subnet prefix
+  lastChecked     DateTime?       @map("last_checked")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
   
   // Relations
-  proxies     Proxy[]
-  ipPools     IpPool[]
-  ports       Port[]
-  heartbeats  NodeHeartbeat[]
+  region          Region?         @relation(fields: [regionId], references: [id])
+  proxies         Proxy[]
+  ipPools         IpPool[]
+  ports           Port[]
+  heartbeats      NodeHeartbeat[]
   
   @@map("nodes")
 }
@@ -68,7 +133,7 @@ model IpPool {
   nodeId         Int       @map("node_id")
   node           Node      @relation(fields: [nodeId], references: [id])
   ipv6           String    @db.VarChar(64)
-  status         IpStatus  @default(free)
+  status         IpStatus  @default(FREE)
   cooldownUntil  DateTime? @map("cooldown_until")
   lastUsedAt     DateTime? @map("last_used_at")
   usageCount     Int       @default(0) @map("usage_count")
@@ -87,7 +152,7 @@ model Port {
   nodeId      Int        @map("node_id")
   node        Node       @relation(fields: [nodeId], references: [id])
   port        Int
-  status      PortStatus @default(free)
+  status      PortStatus @default(FREE)
   createdAt   DateTime   @default(now()) @map("created_at")
   
   // Relation
@@ -102,6 +167,7 @@ model Port {
 model Proxy {
   id              BigInt      @id @default(autoincrement())
   userId          Int         @map("user_id")
+  user            User        @relation(fields: [userId], references: [id])
   nodeId          Int         @map("node_id")
   node            Node        @relation(fields: [nodeId], references: [id])
   
@@ -113,8 +179,11 @@ model Proxy {
   
   username        String      @db.VarChar(50)
   password        String      @db.VarChar(50)
+  protocol        Protocol    @default(SOCKS5)
+  isActive        Boolean     @default(true)
+  lastChecked     DateTime?   @map("last_checked")
   
-  status          ProxyStatus @default(pending)
+  status          ProxyStatus @default(PENDING)
   lastConfigHash  String?     @map("last_config_hash") // For idempotency
   version         Int         @default(1) // For event ordering
   expiresAt       DateTime    @map("expires_at")
@@ -129,6 +198,49 @@ model Proxy {
   @@index([status])
   @@index([expiresAt])
   @@map("proxies")
+}
+
+model Notification {
+  id          String                  @id @default(uuid())
+  targetType  NotificationTargetType  @default(ALL)
+  type        NotificationType
+  title       String
+  message     String
+  data        Json?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  recipients  NotificationRecipient[]
+  statuses    NotificationStatus[]
+
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationRecipient {
+  id             String       @id @default(uuid())
+  notificationId String
+  userId         Int
+
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([notificationId])
+  @@map("notification_recipients")
+}
+
+model NotificationStatus {
+  id             String       @id @default(uuid())
+  userId         Int
+  notificationId String
+  isRead         Boolean      @default(false)
+  isDeleted      Boolean      @default(false)
+  readAt         DateTime?
+
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notificationId])
+  @@index([userId])
+  @@map("notification_status")
 }
 
 // Traffic Statistics (separate table for bandwidth tracking)
@@ -162,7 +274,7 @@ model EventOutbox {
   id            String            @id @default(uuid())
   type          String            // PROXY_CREATE, PROXY_DELETE, etc.
   payload       Json              // Event data
-  status        EventOutboxStatus @default(pending)
+  status        EventOutboxStatus @default(PENDING)
   retryCount    Int               @default(0) @map("retry_count")
   errorMessage  String?           @map("error_message")
   createdAt     DateTime          @default(now()) @map("created_at")
@@ -202,4 +314,19 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([entityType, entityId])
   @@map("audit_logs")
+}
+
+// Region
+model Region {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  nodes       Node[]
+  
+  @@map("regions")
 }

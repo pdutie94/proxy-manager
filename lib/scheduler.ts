@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { prisma } from './db';
 import { SSHService } from './ssh';
-import { ServerStatus } from '@prisma/client';
+import { NodeStatus } from '@prisma/client';
 
 /**
  * Health check scheduler - runs every hour to check server and proxy health
@@ -17,7 +17,7 @@ async function runHealthCheck() {
   console.log('[Scheduler] Running health check at', new Date().toISOString());
 
   try {
-    const servers = await prisma.server.findMany({
+    const servers = await prisma.node.findMany({
       include: {
         proxies: true
       }
@@ -30,10 +30,10 @@ async function runHealthCheck() {
 
         if (connectionResult.success) {
           // Server is online
-          await prisma.server.update({
+          await prisma.node.update({
             where: { id: server.id },
             data: {
-              status: ServerStatus.ACTIVE,
+              status: NodeStatus.ACTIVE,
               lastChecked: new Date()
             }
           });
@@ -65,10 +65,10 @@ async function runHealthCheck() {
         } else {
           // Server is offline
           console.log(`[Scheduler] Server ${server.id} (${server.host}) is offline`);
-          await prisma.server.update({
+          await prisma.node.update({
             where: { id: server.id },
             data: {
-              status: ServerStatus.OFFLINE,
+              status: NodeStatus.OFFLINE,
               lastChecked: new Date()
             }
           });
@@ -86,10 +86,10 @@ async function runHealthCheck() {
         }
       } catch (error) {
         console.error(`[Scheduler] Failed to check server ${server.id}:`, error);
-        await prisma.server.update({
+        await prisma.node.update({
           where: { id: server.id },
           data: {
-            status: ServerStatus.ERROR,
+            status: NodeStatus.ERROR,
             lastChecked: new Date()
           }
         });

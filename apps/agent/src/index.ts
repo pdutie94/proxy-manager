@@ -51,6 +51,25 @@ async function main() {
   await consumer.start();
 
   console.log('Agent ready');
+
+  // Graceful shutdown
+  const shutdown = async (signal: string) => {
+    console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
+    await consumer.stop();
+    await healthServer.stop();
+    bandwidthCollector.stop();
+    
+    // Disconnect Redis
+    if (redis && typeof redis.disconnect === 'function') {
+      redis.disconnect();
+    }
+    
+    console.log('Graceful shutdown completed');
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch(console.error);

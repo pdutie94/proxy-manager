@@ -1,15 +1,21 @@
 import { Injectable, ConflictException } from '@nestjs/common';
-import { prisma, NodeStatus, IpStatus, PortStatus } from '@proxy-manager/db';
+import { PrismaService, NodeStatus, IpStatus, PortStatus, ProxyStatus } from '@proxy-manager/db';
 import { CONFIG } from '@proxy-manager/common';
 
 @Injectable()
 export class AllocatorService {
-  async allocate(requestedNodeId?: number): Promise<{
+  constructor(private readonly prisma: PrismaService) {}
+
+  async allocate<T = any>(
+    requestedNodeId?: number,
+    onAllocate?: (tx: any, allocation: { nodeId: number; ipPoolId: bigint; portId: bigint; ipv6: string; port: number }) => Promise<T>
+  ): Promise<{
     nodeId: number;
     ipPoolId: bigint;
     portId: bigint;
     ipv6: string;
     port: number;
+    result?: T;
   }> {
     // Select node if not specified
     const nodeId = requestedNodeId || (await this.selectNode());
@@ -18,19 +24,19 @@ export class AllocatorService {
     }
 
     // Verify node exists and is active
-    const node = await prisma.node.findUnique({
-      where: { id: nodeId, status: NodeStatus.active },
+    const node = await this.prisma.node.findUnique({
+      where: { id: nodeId, status: NodeStatus.ACTIVE },
     });
     if (!node) {
       throw new ConflictException('Node not found or inactive');
     }
 
     // Transaction: allocate port + IP
-    return await prisma.$transaction(async (tx) => {
+    return await this.prisma.$transaction(async (tx) => {
       // 1. Find and lock free port
       const port = await tx.$queryRaw<{ id: bigint; port: number }[]>`
         SELECT id, port FROM ports
-        WHERE node_id = ${nodeId} AND status = ${PortStatus.free}
+        WHERE node_id = ${nodeId} AND status = ${PortStatus.FREE}
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       `;
@@ -43,7 +49,7 @@ export class AllocatorService {
       let ip = await tx.ipPool.findFirst({
         where: {
           nodeId,
-          status: IpStatus.free,
+          status: IpStatus.FREE,
         },
       });
 
@@ -59,24 +65,34 @@ export class AllocatorService {
       // 3. Mark resources as used
       await tx.port.update({
         where: { id: port[0].id },
-        data: { status: PortStatus.used },
+        data: { status: PortStatus.USED },
       });
 
       await tx.ipPool.update({
         where: { id: ip.id },
         data: {
-          status: IpStatus.in_use,
+          status: IpStatus.IN_USE,
           lastUsedAt: new Date(),
           usageCount: { increment: 1 },
         },
       });
 
-      return {
+      const allocation = {
         nodeId,
         ipPoolId: ip.id,
         portId: port[0].id,
         ipv6: ip.ipv6,
         port: port[0].port,
+      };
+
+      let result: T | undefined;
+      if (onAllocate) {
+        result = await onAllocate(tx, allocation);
+      }
+
+      return {
+        ...allocation,
+        result,
       };
     }, {
       isolationLevel: 'Serializable',
@@ -86,25 +102,25 @@ export class AllocatorService {
   }
 
   async release(proxyId: bigint): Promise<void> {
-    const proxy = await prisma.proxy.findUnique({
+    const proxy = await this.prisma.proxy.findUnique({
       where: { id: proxyId },
       include: { ipPool: true, port: true },
     });
 
     if (!proxy) return;
 
-    await prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       // Release port (immediately reusable)
       await tx.port.update({
         where: { id: proxy.portId },
-        data: { status: PortStatus.free },
+        data: { status: PortStatus.FREE },
       });
 
       // Release IP (cooldown period)
       await tx.ipPool.update({
         where: { id: proxy.ipPoolId },
         data: {
-          status: IpStatus.cooling,
+          status: IpStatus.COOLING,
           cooldownUntil: new Date(Date.now() + CONFIG.IPV6_COOLDOWN_MINUTES * 60 * 1000),
         },
       });
@@ -113,13 +129,13 @@ export class AllocatorService {
 
   private async selectNode(): Promise<number | null> {
     // Weight = available ports - active proxies
-    const nodes = await prisma.node.findMany({
-      where: { status: NodeStatus.active },
+    const nodes = await this.prisma.node.findMany({
+      where: { status: NodeStatus.ACTIVE },
       include: {
         _count: {
           select: {
-            ports: { where: { status: PortStatus.free } },
-            proxies: { where: { status: { not: 'expired' } } },
+            ports: { where: { status: PortStatus.FREE } },
+            proxies: { where: { status: { not: ProxyStatus.EXPIRED } } },
           },
         },
       },
@@ -141,14 +157,21 @@ export class AllocatorService {
     tx: any,
     nodeId: number,
     subnet: string,
+    attempt: number = 0
   ): Promise<{ id: bigint; nodeId: number; ipv6: string; status: IpStatus; createdAt: Date; cooldownUntil: Date | null; lastUsedAt: Date | null; usageCount: number }> {
+    if (attempt >= 10) {
+      throw new ConflictException('Failed to generate unique IPv6 after 10 attempts');
+    }
+
     // Generate random IPv6 suffix from /64 subnet
     // Example: 2001:db8::/64 -> 2001:db8::xxxx:xxxx:xxxx:xxxx
     const suffix = Array.from({ length: 4 }, () =>
       Math.floor(Math.random() * 65536).toString(16).padStart(4, '0')
     ).join(':');
 
-    const ipv6 = `${subnet}${suffix}`;
+    // Replace /64 with the suffix
+    const baseSubnet = subnet.replace(/\/64$/, '');
+    const ipv6 = `${baseSubnet}${suffix}`;
 
     // Check if already exists
     const existing = await tx.ipPool.findFirst({
@@ -157,7 +180,7 @@ export class AllocatorService {
 
     if (existing) {
       // Retry with different suffix (recursion with limit)
-      return this.generateIpv6(tx, nodeId, subnet);
+      return this.generateIpv6(tx, nodeId, subnet, attempt + 1);
     }
 
     // Create new IP
@@ -165,7 +188,7 @@ export class AllocatorService {
       data: {
         nodeId,
         ipv6,
-        status: IpStatus.in_use,
+        status: IpStatus.IN_USE,
         lastUsedAt: new Date(),
         usageCount: 1,
       },

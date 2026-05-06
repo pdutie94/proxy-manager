@@ -20,3 +20,7 @@ export {
   PortStatus,
   EventOutboxStatus,
 } from '@prisma/client';
+
+// Export services and modules
+export { PrismaService } from './prisma.service';
+export { DatabaseModule } from './database.module';

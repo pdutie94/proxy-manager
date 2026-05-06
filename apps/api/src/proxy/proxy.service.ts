@@ -1,5 +1,5 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { prisma, ProxyStatus } from '@proxy-manager/db';
+import { PrismaService, ProxyStatus } from '@proxy-manager/db';
 import { ProxyEventType, generateCorrelationId, generateConfigHash } from '@proxy-manager/common';
 import { EventService } from '../event/event.service';
 import { AllocatorService } from '../allocator/allocator.service';
@@ -7,6 +7,7 @@ import { AllocatorService } from '../allocator/allocator.service';
 @Injectable()
 export class ProxyService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly eventService: EventService,
     private readonly allocatorService: AllocatorService,
   ) {}
@@ -19,7 +20,7 @@ export class ProxyService {
   }) {
     // Check idempotency
     if (data.idempotencyKey) {
-      const existing = await prisma.idempotencyKey.findUnique({
+      const existing = await this.prisma.idempotencyKey.findUnique({
         where: { key: data.idempotencyKey },
       });
       if (existing) {
@@ -28,30 +29,31 @@ export class ProxyService {
     }
 
     // Check backpressure
-    const pendingCount = await prisma.proxy.count({
-      where: { status: ProxyStatus.pending },
+    const pendingCount = await this.prisma.proxy.count({
+      where: { status: ProxyStatus.PENDING },
     });
     if (pendingCount > 1000) {
       throw new ConflictException('System overloaded, please try again later');
     }
 
-    // Allocate resources
-    const allocation = await this.allocatorService.allocate(data.nodeId);
-
-    // Create proxy
-    const proxy = await prisma.proxy.create({
-      data: {
-        userId: data.userId,
-        nodeId: allocation.nodeId,
-        ipPoolId: allocation.ipPoolId,
-        portId: allocation.portId,
-        username: this.generateUsername(),
-        password: this.generatePassword(),
-        status: ProxyStatus.pending,
-        version: 1,
-        expiresAt: data.expiresAt ? new Date(data.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
-      },
+    // Allocate resources and create proxy in the same transaction
+    const allocation = await this.allocatorService.allocate(data.nodeId, async (tx, alloc) => {
+      return await tx.proxy.create({
+        data: {
+          userId: data.userId,
+          nodeId: alloc.nodeId,
+          ipPoolId: alloc.ipPoolId,
+          portId: alloc.portId,
+          username: this.generateUsername(),
+          password: this.generatePassword(),
+          status: ProxyStatus.PENDING,
+          version: 1,
+          expiresAt: data.expiresAt ? new Date(data.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
+        },
+      });
     });
+
+    const proxy = allocation.result!;
 
     // Publish event (outbox pattern)
     const correlationId = generateCorrelationId();
@@ -90,7 +92,7 @@ export class ProxyService {
 
     // Save idempotency key
     if (data.idempotencyKey) {
-      await prisma.idempotencyKey.create({
+      await this.prisma.idempotencyKey.create({
         data: {
           key: data.idempotencyKey,
           response: result as any,
@@ -106,9 +108,9 @@ export class ProxyService {
     const where: any = {};
     if (userId) where.userId = userId;
     if (nodeId) where.nodeId = nodeId;
-    if (status) where.status = status;
+    if (status) where.status = status.toUpperCase() as ProxyStatus;
     
-    return prisma.proxy.findMany({
+    return this.prisma.proxy.findMany({
       where,
       include: {
         node: { select: { id: true, name: true, ipAddress: true } },
@@ -119,15 +121,38 @@ export class ProxyService {
     });
   }
 
+  async getById(id: number) {
+    const proxy = await this.prisma.proxy.findUnique({
+      where: { id },
+      include: {
+        node: { select: { id: true, name: true, ipAddress: true } },
+        ipPool: { select: { ipv6: true } },
+        port: { select: { port: true } },
+      },
+    });
+
+    if (!proxy) throw new NotFoundException('Proxy not found');
+
+    return {
+      ...proxy,
+      id: proxy.id.toString(),
+      ipPoolId: proxy.ipPoolId.toString(),
+      portId: proxy.portId.toString(),
+    };
+  }
+
   async delete(id: number) {
-    const proxy = await prisma.proxy.findUnique({ where: { id } });
+    const proxy = await this.prisma.proxy.findUnique({ where: { id } });
     if (!proxy) throw new NotFoundException('Proxy not found');
 
     // Graceful delete: active -> suspended
-    await prisma.proxy.update({
+    await this.prisma.proxy.update({
       where: { id },
-      data: { status: ProxyStatus.suspended },
+      data: { status: ProxyStatus.SUSPENDED },
     });
+
+    // Release resources immediately
+    await this.allocatorService.release(proxy.id);
 
     // Publish delete event
     await this.eventService.publish({
@@ -143,14 +168,14 @@ export class ProxyService {
   }
 
   async renew(id: number, expiresAt: string) {
-    const proxy = await prisma.proxy.findUnique({ where: { id } });
+    const proxy = await this.prisma.proxy.findUnique({ where: { id } });
     if (!proxy) throw new NotFoundException('Proxy not found');
 
-    await prisma.proxy.update({
+    await this.prisma.proxy.update({
       where: { id },
       data: {
         expiresAt: new Date(expiresAt),
-        status: ProxyStatus.active,
+        status: ProxyStatus.ACTIVE,
         version: { increment: 1 },
       },
     });
@@ -169,13 +194,20 @@ export class ProxyService {
   }
 
   async markApplied(id: number, configHash: string) {
-    await prisma.proxy.update({
+    await this.prisma.proxy.update({
       where: { id },
       data: {
-        status: ProxyStatus.active,
+        status: ProxyStatus.ACTIVE,
         lastConfigHash: configHash,
       },
     });
+    return { success: true };
+  }
+
+  async recordTrafficBatch(nodeId: number, data: any[]) {
+    // Basic implementation to avoid 404, full logic depends on BandwidthCollector
+    // Currently we just log or ignore, the plan is to save to db
+    console.log(`Received traffic batch from node ${nodeId} with ${data.length} records`);
     return { success: true };
   }
 

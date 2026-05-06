@@ -55,12 +55,22 @@ export class HealthServer {
     });
   }
 
+  private server?: any;
+
   async start(port: number): Promise<void> {
     return new Promise((resolve) => {
-      this.app.listen(port, () => {
+      this.server = this.app.listen(port, () => {
         console.log(`Health server listening on port ${port}`);
         resolve();
       });
     });
+  }
+
+  async stop(): Promise<void> {
+    if (this.server) {
+      return new Promise((resolve) => {
+        this.server.close(() => resolve());
+      });
+    }
   }
 }

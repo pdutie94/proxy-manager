@@ -1,17 +1,13 @@
 import { Controller, Get, Post, Delete, Body, Param, Query } from '@nestjs/common';
 import { ProxyService } from './proxy.service';
+import { CreateProxyDto, TrafficBatchDto } from './dto/proxy.dto';
 
 @Controller('proxies')
 export class ProxyController {
   constructor(private readonly proxyService: ProxyService) {}
 
   @Post()
-  async create(@Body() data: {
-    userId: number;
-    nodeId?: number;
-    expiresAt: string;
-    idempotencyKey?: string;
-  }) {
+  async create(@Body() data: CreateProxyDto) {
     return this.proxyService.create(data);
   }
 
@@ -26,6 +22,16 @@ export class ProxyController {
       nodeId ? parseInt(nodeId) : undefined,
       status
     );
+  }
+
+  @Post('traffic/batch')
+  async recordTrafficBatch(@Body() data: TrafficBatchDto) {
+    return this.proxyService.recordTrafficBatch(data.nodeId, data.records);
+  }
+
+  @Get(':id')
+  async getById(@Param('id') id: string) {
+    return this.proxyService.getById(parseInt(id));
   }
 
   @Delete(':id')

@@ -21,6 +21,8 @@ export class EventConsumer {
   private reconcileInterval?: NodeJS.Timeout;
   private priorityQueue = new EventPriorityQueue();
   private processingInterval?: NodeJS.Timeout;
+  private reclaimInterval?: NodeJS.Timeout;
+  private isShuttingDown = false;
 
   constructor(redis: Redis, api: AxiosInstance, config: { nodeId: number; dryRun: boolean; status: AgentStatus; metrics: MetricsCollector }) {
     this.redis = redis;
@@ -51,7 +53,7 @@ export class EventConsumer {
 
   private startEventReader(): void {
     void (async () => {
-      while (true) {
+      while (!this.isShuttingDown) {
         try {
           const messages = await this.redis.xreadgroup(
             'GROUP',
@@ -105,7 +107,7 @@ export class EventConsumer {
   }
 
   private startReclaimTask(): void {
-    setInterval(async () => {
+    this.reclaimInterval = setInterval(async () => {
       try {
         await this.reclaimFailedEvents();
       } catch (err) {
@@ -122,6 +124,24 @@ export class EventConsumer {
         console.error('Periodic reconcile failed:', err);
       }
     }, CONFIG.RECONCILE_INTERVAL_MINUTES * 60 * 1000);
+  }
+
+  async stop(): Promise<void> {
+    console.log('Shutting down event consumer...');
+    this.isShuttingDown = true;
+    
+    if (this.reconcileInterval) clearInterval(this.reconcileInterval);
+    if (this.processingInterval) clearInterval(this.processingInterval);
+    if (this.reclaimInterval) clearInterval(this.reclaimInterval);
+
+    // Drain queue
+    while (this.priorityQueue.size() > 0) {
+      const item = this.priorityQueue.take();
+      if (item) {
+        await this.processMessage(item.id, item.fields);
+      }
+    }
+    console.log('Event consumer stopped');
   }
 
   private async reclaimFailedEvents(): Promise<void> {
@@ -250,11 +270,11 @@ export class EventConsumer {
           break;
       }
 
-      await this.redis.xack(this.streamKey, this.consumerGroup, id);
-
       await this.api.post(`/api/proxies/${event.proxyId.toString()}/applied`, {
         configHash: event.configHash,
       });
+
+      await this.redis.xack(this.streamKey, this.consumerGroup, id);
 
       this.config.status.lastEventTime = new Date().toISOString();
       this.config.status.activeProxies = this.renderer.getProxyCount();

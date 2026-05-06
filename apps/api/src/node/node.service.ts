@@ -1,19 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import { prisma, NodeStatus, PortStatus, ProxyStatus } from '@proxy-manager/db';
+import { PrismaService, NodeStatus, PortStatus, ProxyStatus } from '@proxy-manager/db';
 import { CONFIG } from '@proxy-manager/common';
 
 @Injectable()
 export class NodeService {
-  async create(data: { name: string; maxPorts: number; ipv6Subnet: string; ipAddress?: string; region?: string }) {
-    return prisma.node.create({
-      data: {
-        name: data.name,
-        maxPorts: data.maxPorts,
-        ipv6Subnet: data.ipv6Subnet,
-        ipAddress: data.ipAddress || '127.0.0.1',
-        region: data.region || 'local',
-        status: NodeStatus.active,
-      },
+  constructor(private readonly prisma: PrismaService) {}
+  async create(data: { name: string; maxPorts: number; ipv6Subnet: string; ipAddress?: string; regionId?: number }) {
+    const nodeData: any = {
+      name: data.name,
+      maxPorts: data.maxPorts,
+      ipv6Subnet: data.ipv6Subnet,
+      ipAddress: data.ipAddress || '127.0.0.1',
+      status: NodeStatus.OFFLINE,
+    };
+    
+    if (data.regionId) {
+      nodeData.regionId = data.regionId;
+    }
+    
+    return this.prisma.node.create({
+      data: nodeData,
     });
   }
 
@@ -25,7 +31,7 @@ export class NodeService {
       bandwidthUsage?: number;
     },
   ) {
-    await prisma.nodeHeartbeat.upsert({
+    await this.prisma.nodeHeartbeat.upsert({
       where: { nodeId },
       update: {
         lastSeen: new Date(),
@@ -39,9 +45,9 @@ export class NodeService {
     });
 
     // Update node status if it was offline
-    await prisma.node.updateMany({
-      where: { id: nodeId, status: NodeStatus.offline },
-      data: { status: NodeStatus.active },
+    await this.prisma.node.updateMany({
+      where: { id: nodeId, status: NodeStatus.OFFLINE },
+      data: { status: NodeStatus.ACTIVE },
     });
 
     return { success: true };
@@ -50,48 +56,48 @@ export class NodeService {
   async checkOfflineNodes(): Promise<void> {
     const threshold = new Date(Date.now() - CONFIG.HEARTBEAT_TIMEOUT_SECONDS * 1000);
 
-    const offlineNodes = await prisma.nodeHeartbeat.findMany({
+    const offlineNodes = await this.prisma.nodeHeartbeat.findMany({
       where: {
         lastSeen: { lt: threshold },
-        node: { status: NodeStatus.active },
+        node: { status: NodeStatus.ACTIVE },
       },
       include: { node: true },
     });
 
     for (const heartbeat of offlineNodes) {
       // Mark node as offline
-      await prisma.node.update({
+      await this.prisma.node.update({
         where: { id: heartbeat.nodeId },
-        data: { status: NodeStatus.offline },
+        data: { status: NodeStatus.OFFLINE },
       });
 
       // Mark all active proxies as suspended
-      await prisma.proxy.updateMany({
+      await this.prisma.proxy.updateMany({
         where: {
           nodeId: heartbeat.nodeId,
-          status: { in: [ProxyStatus.active, ProxyStatus.pending] },
+          status: { in: [ProxyStatus.ACTIVE, ProxyStatus.PENDING] },
         },
-        data: { status: ProxyStatus.suspended },
+        data: { status: ProxyStatus.SUSPENDED },
       });
     }
   }
 
   async initializeNode(nodeId: number): Promise<void> {
-    const node = await prisma.node.findUnique({ where: { id: nodeId } });
+    const node = await this.prisma.node.findUnique({ where: { id: nodeId } });
     if (!node) throw new Error('Node not found');
 
     // Pre-generate port range if not exists
-    const existingPorts = await prisma.port.count({ where: { nodeId } });
+    const existingPorts = await this.prisma.port.count({ where: { nodeId } });
     if (existingPorts === 0) {
       const ports = [];
       for (let port = CONFIG.PORT_RANGE_START; port <= CONFIG.PORT_RANGE_END; port++) {
-        ports.push({ nodeId, port, status: PortStatus.free });
+        ports.push({ nodeId, port, status: PortStatus.FREE });
       }
 
       // Batch insert
       const batchSize = 1000;
       for (let i = 0; i < ports.length; i += batchSize) {
-        await prisma.port.createMany({
+        await this.prisma.port.createMany({
           data: ports.slice(i, i + batchSize),
           skipDuplicates: true,
         });
@@ -100,12 +106,18 @@ export class NodeService {
   }
 
   async list() {
-    return prisma.node.findMany({
+    return this.prisma.node.findMany({
       include: {
+        region: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         _count: {
           select: {
-            ports: { where: { status: PortStatus.free } },
-            proxies: { where: { status: { not: ProxyStatus.expired } } },
+            ports: { where: { status: PortStatus.FREE } },
+            proxies: { where: { status: { not: ProxyStatus.EXPIRED } } },
           },
         },
         heartbeats: { orderBy: { lastSeen: 'desc' }, take: 1 },

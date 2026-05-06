@@ -1,39 +1,42 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, Interval } from '@nestjs/schedule';
-import { prisma, ProxyStatus, EventOutboxStatus } from '@proxy-manager/db';
+import { PrismaService, ProxyStatus, EventOutboxStatus, IpStatus } from '@proxy-manager/db';
 import { ProxyEventType, generateCorrelationId } from '@proxy-manager/common';
 import { EventService } from '../event/event.service';
 import { NodeService } from '../node/node.service';
+import { AllocatorService } from '../allocator/allocator.service';
 
 @Injectable()
 export class CronService {
   private readonly logger = new Logger(CronService.name);
 
   constructor(
+    private readonly prisma: PrismaService,
     private readonly eventService: EventService,
     private readonly nodeService: NodeService,
+    private readonly allocatorService: AllocatorService,
   ) {}
 
   // Every minute: Check expired proxies
   @Cron('0 * * * * *')
   async checkExpiredProxies(): Promise<void> {
     const now = new Date();
-    const expired = await prisma.proxy.findMany({
+    const expired = await this.prisma.proxy.findMany({
       where: {
-        status: { in: [ProxyStatus.active, ProxyStatus.pending] },
+        status: { in: [ProxyStatus.ACTIVE, ProxyStatus.PENDING] },
         expiresAt: { lt: now },
       },
     });
 
     for (const proxy of expired) {
       // Update status
-      await prisma.proxy.update({
+      await this.prisma.proxy.update({
         where: { id: proxy.id },
-        data: { status: ProxyStatus.expired },
+        data: { status: ProxyStatus.EXPIRED },
       });
 
       // Release resources
-      await this.releaseResources(proxy.id);
+      await this.allocatorService.release(proxy.id);
 
       // Publish expire event
       await this.eventService.publish({
@@ -54,9 +57,9 @@ export class CronService {
   async checkPendingTimeout(): Promise<void> {
     const timeout = new Date(Date.now() - 2 * 60 * 1000); // 2 minutes
 
-    const pending = await prisma.proxy.findMany({
+    const pending = await this.prisma.proxy.findMany({
       where: {
-        status: ProxyStatus.pending,
+        status: ProxyStatus.PENDING,
         createdAt: { lt: timeout },
       },
     });
@@ -77,12 +80,12 @@ export class CronService {
 
     // Mark as error after multiple retries (3+ attempts)
     const errorTimeout = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes
-    await prisma.proxy.updateMany({
+    await this.prisma.proxy.updateMany({
       where: {
-        status: ProxyStatus.pending,
+        status: ProxyStatus.PENDING,
         createdAt: { lt: errorTimeout },
       },
-      data: { status: ProxyStatus.error },
+      data: { status: ProxyStatus.ERROR },
     });
   }
 
@@ -102,40 +105,37 @@ export class CronService {
   @Cron('0 */5 * * * *')
   async reconcile(): Promise<void> {
     // Clean up old idempotency keys
-    await prisma.idempotencyKey.deleteMany({
+    await this.prisma.idempotencyKey.deleteMany({
       where: { expiresAt: { lt: new Date() } },
     });
 
     // Clean up old audit logs (keep 90 days)
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-    await prisma.auditLog.deleteMany({
+    await this.prisma.auditLog.deleteMany({
       where: { createdAt: { lt: cutoff } },
     });
 
     this.logger.log('Reconciliation complete');
   }
 
-  private async releaseResources(proxyId: bigint): Promise<void> {
-    const proxy = await prisma.proxy.findUnique({
-      where: { id: proxyId },
-      include: { ipPool: true, port: true },
-    });
-
-    if (!proxy) return;
-
-    // Release port
-    await prisma.port.update({
-      where: { id: proxy.portId },
-      data: { status: 'free' as any },
-    });
-
-    // Release IP with cooldown
-    await prisma.ipPool.update({
-      where: { id: proxy.ipPoolId },
+  // Every minute: Check IPs in cooldown that have passed their cooldown period
+  @Cron('0 * * * * *')
+  async resetCoolingIps(): Promise<void> {
+    const now = new Date();
+    
+    const result = await this.prisma.ipPool.updateMany({
+      where: {
+        status: IpStatus.COOLING,
+        cooldownUntil: { lte: now },
+      },
       data: {
-        status: 'cooling' as any,
-        cooldownUntil: new Date(Date.now() + 30 * 60 * 1000), // 30 min
+        status: IpStatus.FREE,
+        cooldownUntil: null,
       },
     });
+
+    if (result.count > 0) {
+      this.logger.log(`Reset ${result.count} cooled IPs back to FREE`);
+    }
   }
 }

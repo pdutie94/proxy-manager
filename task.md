@@ -12,7 +12,8 @@ Production-ready proxy management system with NestJS API, Next.js Dashboard, and
 - [x] Create `apps/agent/` - Node.js worker
 - [x] Create `libs/db/` - Prisma + shared client
 - [x] Create `libs/common/` - Shared types/utils
-- [ ] Move existing Next.js app → `apps/dashboard/`
+- [x] Move existing Next.js app → `apps/dashboard/`
+
 
 ### 1.2 Root Package.json
 - [x] Setup npm/pnpm workspaces
@@ -192,20 +193,20 @@ Debounce Batch → Render Config → Safe Update → ACK → Mark Applied
 
 ---
 
-## Phase 4: Frontend Integration (apps/dashboard)
+## Phase 4: Frontend Integration (apps/dashboard) - ✅ COMPLETED (2026-05-04)
 
 ### 4.1 API Proxy
-- [ ] Create `app/api/[...path]/route.ts`
-- [ ] Proxy `/api/*` to `http://localhost:3001`
-- [ ] Pass through auth headers
+- [x] Create `app/api/[...path]/route.ts`
+- [x] Proxy `/api/*` to `http://localhost:3001`
+- [x] Pass through auth headers
 
 ### 4.2 Keep Existing
-- [ ] Auth pages (login, etc.)
-- [ ] Dashboard UI
-- [ ] Proxy management UI
-- [ ] Notification system
+- [x] Auth pages (login, etc.)
+- [x] Dashboard UI
+- [x] Proxy management UI
+- [x] Notification system
 
-**Deliverable**: `npm run dev` serves UI on :3000, API calls proxied to :3001
+**Deliverable**: `npm run dev` serves UI on :3000, API calls proxied to :3001 ✅
 
 ---
 
@@ -280,7 +281,7 @@ Debounce Batch → Render Config → Safe Update → ACK → Mark Applied
 | 1 | Monorepo structure + DB schema | ✅ Done (2025-05-03) |
 | 2 | NestJS API with all endpoints | ✅ Done & Tested (2025-05-04) |
 | 3 | Node Agent consuming events | ✅ Done & Tested (2026-05-04) |
-| 4 | Dashboard proxying to API | ⬜ Pending |
+| 4 | Dashboard proxying to API | ✅ Done (2026-05-04) |
 | 5 | E2E tests passing | ⬜ Pending |
 | 6 | Production deploy + monitoring | ⬜ Pending |
 
