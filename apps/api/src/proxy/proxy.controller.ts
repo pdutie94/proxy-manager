@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Delete, Body, Param, Query } from '@nestjs/common';
 import { ProxyService } from './proxy.service';
-import { CreateProxyDto, TrafficBatchDto } from './dto/proxy.dto';
+import { CreateProxyDto, CreateBulkProxyDto, DeleteBulkProxyDto, TrafficBatchDto } from './dto/proxy.dto';
 
 @Controller('proxies')
 export class ProxyController {
@@ -9,6 +9,11 @@ export class ProxyController {
   @Post()
   async create(@Body() data: CreateProxyDto) {
     return this.proxyService.create(data);
+  }
+
+  @Post('bulk')
+  async createBulk(@Body() data: CreateBulkProxyDto) {
+    return this.proxyService.createBulk(data);
   }
 
   @Get()
@@ -37,6 +42,11 @@ export class ProxyController {
   @Delete(':id')
   async delete(@Param('id') id: string) {
     return this.proxyService.delete(parseInt(id));
+  }
+
+  @Delete('bulk')
+  async deleteBulk(@Body() data: DeleteBulkProxyDto) {
+    return this.proxyService.deleteBulk(data.ids);
   }
 
   @Post(':id/renew')

@@ -1,5 +1,6 @@
 import express from 'express';
 import Redis from 'ioredis';
+import { logger } from '../logger';
 
 type StatusProvider = () => Promise<Record<string, unknown>>;
 
@@ -60,7 +61,7 @@ export class HealthServer {
   async start(port: number): Promise<void> {
     return new Promise((resolve) => {
       this.server = this.app.listen(port, () => {
-        console.log(`Health server listening on port ${port}`);
+        logger.info(`Health server listening on port ${port}`);
         resolve();
       });
     });

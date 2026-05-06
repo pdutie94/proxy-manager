@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import { BufferEntry, FileBuffer } from '../buffer/file-buffer';
 import { CONFIG } from '@proxy-manager/common';
 import { MetricsCollector } from './metrics-collector';
+import { logger } from '../logger';
 
 export class BandwidthCollector {
   private buffer: FileBuffer;
@@ -39,7 +40,7 @@ export class BandwidthCollector {
         await this.scanLogFile();
         await this.flush();
       } catch (err) {
-        console.error('BandwidthCollector error:', err);
+        logger.error('BandwidthCollector error:', err);
       }
     }, CONFIG.TRAFFIC_BATCH_SECONDS * 1000);
   }
@@ -64,9 +65,9 @@ export class BandwidthCollector {
     try {
       await this.api.post('/api/proxies/traffic/batch', { entries });
       await this.buffer.clear();
-      console.log(`Flushed ${entries.length} bandwidth records`);
+      logger.info(`Flushed ${entries.length} bandwidth records`);
     } catch (err) {
-      console.warn('Failed to flush bandwidth records, keeping buffer:', err);
+      logger.warn('Failed to flush bandwidth records, keeping buffer:', err);
     }
   }
 

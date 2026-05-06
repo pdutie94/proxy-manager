@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Download, Terminal, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Download, Terminal, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Node } from '@proxy-manager/db';
 import { api } from '../lib/api';
 
 interface Initialize3ProxyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  node: Node;
+  node: any;
   onSuccess?: () => void;
 }
 
@@ -43,37 +43,67 @@ const Initialize3ProxyModal: React.FC<Initialize3ProxyModalProps> = ({
     }
   }, [isOpen]);
 
-  const handleInitialize = async () => {
+  const handleInitialize = async (force = false) => {
     setIsInitializing(true);
     setResult(null);
-    setSteps([]);
+    setSteps([
+      { name: 'Kiểm tra kết nối SSH', isLoading: true },
+      { name: 'Dừng dịch vụ hiện có', isLoading: false },
+      { name: 'Cài đặt dependencies', isLoading: false },
+      { name: 'Tải source code 3Proxy', isLoading: false },
+      { name: 'Biên dịch 3Proxy', isLoading: false },
+      { name: 'Cấu hình hệ thống (FD limits)', isLoading: false },
+      { name: 'Khởi chạy dịch vụ', isLoading: false },
+    ]);
 
     try {
-      // Start initialization
-      const response = await api.initializeNode(node.id);
+      const response = await api.initializeNode(node.id, force);
       
+      if (response.initResult?.code === 'ALREADY_INSTALLED' && !force) {
+        setResult({
+          success: false,
+          message: '3Proxy đã được cài đặt trên node này. Bạn có muốn cài đặt lại không?'
+        });
+        setIsInitializing(false);
+        return;
+      }
+
+      if (response.initResult?.details?.steps) {
+        const actualSteps = response.initResult.details.steps;
+        
+        // Simulate step-by-step update for better UX
+        for (let i = 0; i < actualSteps.length; i++) {
+          setCurrentStep(actualSteps[i].name);
+          setSteps(prev => {
+            const newSteps = [...prev];
+            // If the step exists in our static list, update it, otherwise add it
+            if (newSteps[i]) {
+              newSteps[i] = { ...actualSteps[i], isLoading: false };
+            } else {
+              newSteps.push({ ...actualSteps[i], isLoading: false });
+            }
+            // Mark next step as loading
+            if (newSteps[i+1]) {
+              newSteps[i+1].isLoading = true;
+            }
+            return newSteps;
+          });
+          // Small delay for visual effect
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
       if (response.initResult?.success) {
         setResult({
           success: true,
           message: response.initResult.message || '3Proxy đã được cài đặt thành công!'
         });
-        
-        // Show detailed steps if available
-        if (response.initResult?.details?.steps) {
-          setSteps(response.initResult.details.steps);
-        }
-        
         onSuccess?.();
       } else {
         setResult({
           success: false,
           message: response.initResult?.message || 'Cài đặt 3Proxy thất bại'
         });
-        
-        // Show detailed steps if available
-        if (response.initResult?.details?.steps) {
-          setSteps(response.initResult.details.steps);
-        }
       }
     } catch (error: any) {
       setResult({
@@ -134,9 +164,9 @@ const Initialize3ProxyModal: React.FC<Initialize3ProxyModalProps> = ({
         <div className="flex-1 overflow-y-auto p-6">
           <div className="space-y-4">
             {/* Node Info */}
-            <div className="bg-gray-50 rounded-lg p-4">
+            <div className="bg-gray-50 rounded-lg">
               <h3 className="font-medium text-gray-900 mb-2">Thông tin Node</h3>
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <span className="text-gray-600">IP Address:</span>
                   <span className="ml-2 font-medium">{node.ipAddress}</span>
@@ -150,8 +180,8 @@ const Initialize3ProxyModal: React.FC<Initialize3ProxyModalProps> = ({
                   <span className="ml-2 font-medium">{node.sshUsername}</span>
                 </div>
                 <div>
-                  <span className="text-gray-600">Region ID:</span>
-                  <span className="ml-2 font-medium">{node.regionId}</span>
+                  <span className="text-gray-600">Khu vực:</span>
+                  <span className="ml-2 font-medium">{node.region?.name || 'N/A'}</span>
                 </div>
               </div>
             </div>
@@ -176,22 +206,26 @@ const Initialize3ProxyModal: React.FC<Initialize3ProxyModalProps> = ({
               <div className={`rounded-lg p-4 ${
                 result.success 
                   ? 'bg-green-50 border border-green-200' 
+                  : result.message.includes('cài đặt lại')
+                  ? 'bg-orange-50 border border-orange-200'
                   : 'bg-red-50 border border-red-200'
               }`}>
                 <div className="flex items-center gap-2">
                   {result.success ? (
                     <CheckCircle className="w-5 h-5 text-green-600" />
+                  ) : result.message.includes('cài đặt lại') ? (
+                    <AlertCircle className="w-5 h-5 text-orange-600" />
                   ) : (
                     <AlertCircle className="w-5 h-5 text-red-600" />
                   )}
                   <span className={`font-medium ${
-                    result.success ? 'text-green-900' : 'text-red-900'
+                    result.success ? 'text-green-900' : result.message.includes('cài đặt lại') ? 'text-orange-900' : 'text-red-900'
                   }`}>
-                    {result.success ? 'Cài đặt thành công!' : 'Cài đặt thất bại!'}
+                    {result.success ? 'Cài đặt thành công!' : result.message.includes('cài đặt lại') ? 'Thông báo' : 'Cài đặt thất bại!'}
                   </span>
                 </div>
                 <p className={`text-sm mt-1 ${
-                  result.success ? 'text-green-700' : 'text-red-700'
+                  result.success ? 'text-green-700' : result.message.includes('cài đặt lại') ? 'text-orange-700' : 'text-red-700'
                 }`}>
                   {result.message}
                 </p>
@@ -222,8 +256,8 @@ const Initialize3ProxyModal: React.FC<Initialize3ProxyModalProps> = ({
                             </div>
                           )}
                           {step.error && (
-                            <div className="text-sm text-red-600 mt-1">
-                              Error: {step.error}
+                            <div className={`text-sm mt-1 ${step.success === false ? 'text-red-600' : 'text-gray-500 italic'}`}>
+                              {step.success === false ? 'Error' : 'Logs'}: {step.error}
                             </div>
                           )}
                           {step.exitCode !== undefined && (
@@ -253,11 +287,21 @@ const Initialize3ProxyModal: React.FC<Initialize3ProxyModalProps> = ({
           
           {!result && !isInitializing && (
             <button
-              onClick={handleInitialize}
+              onClick={() => handleInitialize(false)}
               className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2"
             >
               <Download className="w-4 h-4" />
               Bắt đầu cài đặt
+            </button>
+          )}
+
+          {result?.message.includes('cài đặt lại') && !isInitializing && (
+            <button
+              onClick={() => handleInitialize(true)}
+              className="px-4 py-2 bg-orange-600 text-white hover:bg-orange-700 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Cài đặt lại (Force)
             </button>
           )}
           

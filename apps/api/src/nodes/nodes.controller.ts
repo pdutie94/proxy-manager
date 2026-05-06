@@ -3,13 +3,16 @@ import { NodeService } from '../node/node.service';
 import { SshService } from './ssh.service';
 import { PrismaService, Node, NodeStatus } from '@proxy-manager/db';
 import { CreateNodeDto, UpdateNodeDto } from './dto/nodes.dto';
+import { EventService } from '../event/event.service';
+import { ProxyEventType, generateCorrelationId } from '@proxy-manager/common';
 
 @Controller('nodes')
 export class NodesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sshService: SshService,
-    private readonly nodeService: NodeService
+    private readonly nodeService: NodeService,
+    private readonly eventService: EventService
   ) {}
 
   @Get()
@@ -30,7 +33,8 @@ export class NodesController {
           select: {
             proxies: true
           }
-        }
+        },
+        region: true
       },
       orderBy: {
         createdAt: 'desc'
@@ -64,7 +68,8 @@ export class NodesController {
           select: {
             proxies: true
           }
-        }
+        },
+        region: true
       }
     });
 
@@ -110,6 +115,8 @@ export class NodesController {
 
   @Put(':id')
   async updateNode(@Param('id') id: string, @Body() updateNodeDto: UpdateNodeDto) {
+    const oldNode = await this.prisma.node.findUnique({ where: { id: parseInt(id) } });
+
     const node = await this.prisma.node.update({
       where: { id: parseInt(id) },
       data: {
@@ -129,6 +136,27 @@ export class NodesController {
         status: updateNodeDto.status
       }
     });
+
+    // Trigger events if status changed to/from SUSPENDED
+    if (oldNode?.status !== NodeStatus.SUSPENDED && node.status === NodeStatus.SUSPENDED) {
+      await this.eventService.publish({
+        type: ProxyEventType.NODE_SUSPEND,
+        nodeId: node.id,
+        proxyId: 0,
+        version: 0,
+        configHash: '',
+        correlationId: generateCorrelationId(),
+      });
+    } else if (oldNode?.status === NodeStatus.SUSPENDED && node.status !== NodeStatus.SUSPENDED) {
+      await this.eventService.publish({
+        type: ProxyEventType.NODE_RESUME,
+        nodeId: node.id,
+        proxyId: 0,
+        version: 0,
+        configHash: '',
+        correlationId: generateCorrelationId(),
+      });
+    }
 
     return node;
   }
@@ -153,9 +181,13 @@ export class NodesController {
       throw new BadRequestException(`Cannot delete node with ${proxyCount} existing proxies. Please delete all proxies first.`);
     }
 
-    await this.prisma.node.delete({
-      where: { id: parseInt(id) }
-    });
+    // Delete related records to avoid foreign key constraints
+    await this.prisma.$transaction([
+      this.prisma.nodeHeartbeat.deleteMany({ where: { nodeId: parseInt(id) } }),
+      this.prisma.ipPool.deleteMany({ where: { nodeId: parseInt(id) } }),
+      this.prisma.port.deleteMany({ where: { nodeId: parseInt(id) } }),
+      this.prisma.node.delete({ where: { id: parseInt(id) } }),
+    ]);
 
     return { message: 'Node deleted successfully' };
   }
@@ -173,6 +205,15 @@ export class NodesController {
     // Perform actual SSH connection test
     const result = await this.sshService.testNodeConnection(node);
     
+    // Update node status and lastChecked in DB
+    await this.prisma.node.update({
+      where: { id: parseInt(id) },
+      data: {
+        status: result.ok ? NodeStatus.ACTIVE : NodeStatus.OFFLINE,
+        lastChecked: new Date(),
+      }
+    });
+
     // Return updated node with test results
     const updatedNode = await this.prisma.node.findUnique({
       where: { id: parseInt(id) }
@@ -185,7 +226,7 @@ export class NodesController {
   }
 
   @Post(':id/initialize')
-  async initializeNode(@Param('id') id: string) {
+  async initializeNode(@Param('id') id: string, @Query('force') force?: string) {
     const node = await this.prisma.node.findUnique({
       where: { id: parseInt(id) }
     });
@@ -195,7 +236,7 @@ export class NodesController {
     }
 
     // Perform node initialization via SSH
-    const result = await this.sshService.initializeNode(node);
+    const result = await this.sshService.initializeNode(node, force === 'true');
     
     // Update node status based on initialization result
     if (result.success) {
@@ -262,5 +303,77 @@ export class NodesController {
       maxPorts: node.maxPorts,
       usedPorts: totalProxies
     };
+  }
+
+  @Get(':id/logs')
+  async getNodeLogs(@Param('id') id: string) {
+    const node = await this.prisma.node.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!node) {
+      throw new NotFoundException('Node not found');
+    }
+
+    const logs = await this.sshService.getNodeLogs(node);
+    return { logs };
+  }
+
+  @Post(':id/toggle')
+  async toggleNodeStatus(@Param('id') id: string) {
+    const node = await this.prisma.node.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!node) {
+      throw new NotFoundException('Node not found');
+    }
+
+    const newStatus = node.status === NodeStatus.ACTIVE ? NodeStatus.OFFLINE : NodeStatus.ACTIVE;
+    
+    const updatedNode = await this.prisma.node.update({
+      where: { id: parseInt(id) },
+      data: { status: newStatus }
+    });
+
+    return updatedNode;
+  }
+
+  @Post(':id/suspend')
+  async suspendNode(@Param('id') id: string) {
+    const node = await this.prisma.node.update({
+      where: { id: parseInt(id) },
+      data: { status: NodeStatus.SUSPENDED }
+    });
+
+    await this.eventService.publish({
+      type: ProxyEventType.NODE_SUSPEND,
+      nodeId: node.id,
+      proxyId: 0,
+      version: 0,
+      configHash: '',
+      correlationId: generateCorrelationId(),
+    });
+
+    return node;
+  }
+
+  @Post(':id/resume')
+  async resumeNode(@Param('id') id: string) {
+    const node = await this.prisma.node.update({
+      where: { id: parseInt(id) },
+      data: { status: NodeStatus.ACTIVE }
+    });
+
+    await this.eventService.publish({
+      type: ProxyEventType.NODE_RESUME,
+      nodeId: node.id,
+      proxyId: 0,
+      version: 0,
+      configHash: '',
+      correlationId: generateCorrelationId(),
+    });
+
+    return node;
   }
 }

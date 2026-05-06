@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { AxiosInstance } from 'axios';
+import { logger } from '../logger';
 import { createHmac } from 'crypto';
 import { ProxyEvent, ProxyEventType, CONFIG, getShardIndex } from '@proxy-manager/common';
 import { ConfigRenderer } from '../config/renderer';
@@ -32,14 +33,14 @@ export class EventConsumer {
   }
 
   async start(): Promise<void> {
-    console.log('Starting event consumer...');
+    logger.info('Starting event consumer...');
     
     try {
       await this.redis.xgroup('CREATE', this.streamKey, this.consumerGroup, '0', 'MKSTREAM');
-      console.log('Created consumer group');
+      logger.info('Created consumer group');
     } catch (err: any) {
       if (!err.message.includes('BUSYGROUP')) {
-        console.error('Failed to create consumer group:', err);
+        logger.error('Failed to create consumer group:', err);
       }
     }
 
@@ -48,7 +49,7 @@ export class EventConsumer {
     this.startPriorityQueueProcessor();
     this.startEventReader();
 
-    console.log('Event consumer initialized');
+    logger.info('Event consumer initialized');
   }
 
   private startEventReader(): void {
@@ -79,12 +80,12 @@ export class EventConsumer {
                   this.priorityQueue.add(id, fields, event);
                 }
               } catch (err) {
-                console.error('Failed to parse event:', err);
+                logger.error('Failed to parse event:', err);
               }
             }
           }
         } catch (err) {
-          console.error('Event reader error:', err);
+          logger.error('Event reader error:', err);
           await new Promise(r => setTimeout(r, 5000));
         }
       }
@@ -101,7 +102,7 @@ export class EventConsumer {
           }
         }
       } catch (err) {
-        console.error('Priority queue processor error:', err);
+        logger.error('Priority queue processor error:', err);
       }
     }, 100);
   }
@@ -111,7 +112,7 @@ export class EventConsumer {
       try {
         await this.reclaimFailedEvents();
       } catch (err) {
-        console.error('Reclaim task error:', err);
+        logger.error('Reclaim task error:', err);
       }
     }, 30000); // Every 30 seconds
   }
@@ -121,13 +122,13 @@ export class EventConsumer {
       try {
         await this.reconcile();
       } catch (err) {
-        console.error('Periodic reconcile failed:', err);
+        logger.error('Periodic reconcile failed:', err);
       }
     }, CONFIG.RECONCILE_INTERVAL_MINUTES * 60 * 1000);
   }
 
   async stop(): Promise<void> {
-    console.log('Shutting down event consumer...');
+    logger.info('Shutting down event consumer...');
     this.isShuttingDown = true;
     
     if (this.reconcileInterval) clearInterval(this.reconcileInterval);
@@ -141,17 +142,17 @@ export class EventConsumer {
         await this.processMessage(item.id, item.fields);
       }
     }
-    console.log('Event consumer stopped');
+    logger.info('Event consumer stopped');
   }
 
   private async reclaimFailedEvents(): Promise<void> {
-    console.log('Checking for failed events to reclaim...');
+    logger.info('Checking for failed events to reclaim...');
 
     let pendingSummary: any;
     try {
       pendingSummary = await this.redis.xpending(this.streamKey, this.consumerGroup);
     } catch (err) {
-      console.error('Unable to fetch XPENDING summary:', err);
+      logger.error('Unable to fetch XPENDING summary:', err);
       return;
     }
 
@@ -193,16 +194,16 @@ export class EventConsumer {
           );
 
           if (claimed && claimed.length > 0) {
-            console.log(`Reclaimed failed event ${messageId} from ${consumer}`);
+            logger.info(`Reclaimed failed event ${messageId} from ${consumer}`);
             for (const [id, fields] of claimed as any[]) {
               await this.processMessage(id, fields);
             }
           }
         } catch (err) {
-          console.error(`Failed to reclaim event ${messageId}:`, err);
+          logger.error(`Failed to reclaim event ${messageId}:`, err);
         }
       } else if (deliveryCount >= 3) {
-        console.warn(`Event ${messageId} failed ${deliveryCount} times, marking as dead`);
+        logger.warn(`Event ${messageId} failed ${deliveryCount} times, marking as dead`);
         await this.redis.xack(this.streamKey, this.consumerGroup, messageId);
       }
     }
@@ -220,15 +221,15 @@ export class EventConsumer {
       }
 
       if (!this.verifySignature(event)) {
-        console.warn(`Signature verification failed for proxy ${event.proxyId}`);
+        logger.warn(`Signature verification failed for proxy ${event.proxyId}`);
         await this.redis.xack(this.streamKey, this.consumerGroup, id);
         return;
       }
 
-      console.log(`Processing ${event.type} for proxy ${event.proxyId}`);
+      logger.info(`Processing ${event.type} for proxy ${event.proxyId}`);
 
       if (this.config.dryRun) {
-        console.log('DRY_RUN: Would process event');
+        logger.info('DRY_RUN: Would process event');
         await this.redis.xack(this.streamKey, this.consumerGroup, id);
         return;
       }
@@ -239,21 +240,21 @@ export class EventConsumer {
         current = response.data;
       } catch (error: any) {
         if (error.response?.status === 404) {
-          console.log(`Proxy ${event.proxyId} not found, will create`);
+          logger.info(`Proxy ${event.proxyId} not found, will create`);
         } else {
           throw error;
         }
       }
 
       if (current && current.lastConfigHash === event.configHash && event.type !== ProxyEventType.PROXY_DELETE) {
-        console.log(`Event already applied to proxy ${event.proxyId}, skipping`);
+        logger.info(`Event already applied to proxy ${event.proxyId}, skipping`);
         await this.redis.xack(this.streamKey, this.consumerGroup, id);
         this.config.status.lastEventTime = new Date().toISOString();
         return;
       }
 
       if (current && event.version < current.version && event.type !== ProxyEventType.PROXY_DELETE) {
-        console.log(`Out of order event for proxy ${event.proxyId}, skipping (event: ${event.version} < current: ${current.version})`);
+        logger.info(`Out of order event for proxy ${event.proxyId}, skipping (event: ${event.version} < current: ${current.version})`);
         await this.redis.xack(this.streamKey, this.consumerGroup, id);
         this.config.status.lastEventTime = new Date().toISOString();
         return;
@@ -268,11 +269,26 @@ export class EventConsumer {
         case ProxyEventType.PROXY_EXPIRE:
           await this.renderer.removeProxy(Number(event.proxyId), event.port!);
           break;
+        case ProxyEventType.NODE_SUSPEND:
+          await this.renderer.removeAllProxies();
+          break;
+        case ProxyEventType.NODE_RESUME:
+          await this.reconcile();
+          break;
       }
 
-      await this.api.post(`/api/proxies/${event.proxyId.toString()}/applied`, {
-        configHash: event.configHash,
-      });
+      const isProxyEvent = [
+        ProxyEventType.PROXY_CREATE,
+        ProxyEventType.PROXY_RENEW,
+        ProxyEventType.PROXY_DELETE,
+        ProxyEventType.PROXY_EXPIRE
+      ].includes(event.type);
+
+      if (isProxyEvent) {
+        await this.api.post(`/api/proxies/${event.proxyId.toString()}/applied`, {
+          configHash: event.configHash,
+        });
+      }
 
       await this.redis.xack(this.streamKey, this.consumerGroup, id);
 
@@ -280,15 +296,15 @@ export class EventConsumer {
       this.config.status.activeProxies = this.renderer.getProxyCount();
       this.config.metrics.recordConfigUpdate();
 
-      console.log(`Processed ${event.type} for proxy ${event.proxyId}`);
+      logger.info(`Processed ${event.type} for proxy ${event.proxyId}`);
     } catch (err) {
-      console.error('Failed to process message:', err);
+      logger.error('Failed to process message:', err);
       this.config.metrics.recordError();
     }
   }
 
   async reconcile(): Promise<void> {
-    console.log('Starting reconciliation...');
+    logger.info('Starting reconciliation...');
     
     // Fetch all active proxies from API
     const response = await this.api.get('/api/proxies', {
@@ -296,7 +312,7 @@ export class EventConsumer {
     });
 
     const proxies = response.data;
-    console.log(`Found ${proxies.length} active proxies`);
+    logger.info(`Found ${proxies.length} active proxies`);
 
     // Group by shard
     const shards = new Map<string, typeof proxies>();
@@ -311,7 +327,7 @@ export class EventConsumer {
       await this.renderer.rebuildShard(shard, shardProxies);
     }
 
-    console.log('Reconciliation complete');
+    logger.info('Reconciliation complete');
   }
 
   private verifySignature(event: ProxyEvent): boolean {

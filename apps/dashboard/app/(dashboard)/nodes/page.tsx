@@ -9,6 +9,8 @@ import ActionDropdown from '@/components/ActionDropdown';
 import { useModal } from '@/components/ModalContainer';
 import { useToast } from '@/components/Toast';
 import Initialize3ProxyModal from '@/components/Initialize3ProxyModal';
+import LogsModal from '@/components/LogsModal';
+import CheckNodeModal from '@/components/CheckNodeModal';
 
 // Use the same Node type as API response
 type Node = Awaited<ReturnType<typeof api.getNodes>>[0];
@@ -21,8 +23,12 @@ const NodesPage: React.FC = () => {
   const [modalLoading, setModalLoading] = useState(false);
   const [initializeModalOpen, setInitializeModalOpen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [currentLogs, setCurrentLogs] = useState('');
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [checkModalOpen, setCheckModalOpen] = useState(false);
   const { addToast } = useToast();
-  const { openNodeModal, openConfirmModal } = useModal();
+  const { openNodeModal, openConfirmModal, closeConfirmModal } = useModal();
 
   useEffect(() => {
     fetchNodes();
@@ -70,14 +76,29 @@ const NodesPage: React.FC = () => {
 
   const handleDeleteNode = async (node: Node) => {
     setModalLoading(true);
+    addToast({
+      type: 'info',
+      title: 'Đang xử lý',
+      message: `Đang xóa node "${node.name}"...`
+    });
     try {
       await api.deleteNode(node.id);
       await fetchNodes();
+      addToast({
+        type: 'success',
+        title: 'Xóa thành công',
+        message: `Node "${node.name}" đã được xóa khỏi hệ thống`
+      });
     } catch (error) {
       console.error('Error deleting node:', error);
-      throw error;
+      addToast({
+        type: 'error',
+        title: 'Xóa thất bại',
+        message: 'Không thể xóa node. Vui lòng thử lại sau.'
+      });
     } finally {
       setModalLoading(false);
+      closeConfirmModal();
     }
   };
 
@@ -90,12 +111,7 @@ const NodesPage: React.FC = () => {
     }
   };
 
-  const handleConfigure3Proxy = async (node: Node) => {
-    try {
-      await api.initializeNode(node.id);
-    } catch (error) {
-      console.error('Error configuring 3Proxy:', error);
-    }
+  const handleConfigure3Proxy = (node: Node) => {
     setSelectedNode(node);
     setInitializeModalOpen(true);
   };
@@ -126,107 +142,58 @@ const NodesPage: React.FC = () => {
     }
   };
 
-  const handleViewLogs = (node: Node) => {
-    // TODO: Open logs modal
-    addToast({
-      type: 'info',
-      title: 'Tính năng đang phát triển',
-      message: `Xem logs cho node "${node.name}" sẽ có sẵn trong phiên bản tiếp theo`
-    });
+  const handleViewLogs = async (node: Node) => {
+    setSelectedNode(node);
+    setLogsModalOpen(true);
+    setLogsLoading(true);
+    try {
+      const { logs } = await api.getNodeLogs(node.id);
+      setCurrentLogs(logs);
+    } catch (error) {
+      setCurrentLogs('Failed to fetch logs.');
+    } finally {
+      setLogsLoading(false);
+    }
   };
 
-  const handleInitializeNode = async (node: Node) => {
-    try {
-      console.log('=== Frontend: handleInitializeNode called ===', { nodeId: node.id, nodeName: node.name });
-      
-      addToast({
-        type: 'info',
-        title: 'Đang khởi tạo',
-        message: `Đang khởi tạo node "${node.name}"...`
-      });
-      
-      // Call actual initialize node API
-      const response = await api.initializeNode(node.id);
-      console.log('=== Frontend: API response received ===', response);
-      
-      if (response.initResult?.success) {
-        console.log('=== Frontend: Success case, showing success toast ===');
-        addToast({
-          type: 'success',
-          title: 'Khởi tạo thành công',
-          message: `Node "${node.name}" đã được khởi tạo thành công`
-        });
-      } else {
-        console.log('=== Frontend: Failure case, showing error toast ===', {
-          success: response.initResult?.success,
-          message: response.initResult?.message
-        });
-        addToast({
-          type: 'error',
-          title: 'Khởi tạo thất bại',
-          message: response.initResult?.message || `Không thể khởi tạo node "${node.name}"`
-        });
-      }
-      
-      await fetchNodes();
-    } catch (error) {
-      console.error('=== Frontend: Exception in handleInitializeNode ===', error);
-      addToast({
-        type: 'error',
-        title: 'Khởi tạo thất bại',
-        message: `Không thể khởi tạo node "${node.name}"`
-      });
-    }
+  const handleInitializeNode = (node: Node) => {
+    setSelectedNode(node);
+    setInitializeModalOpen(true);
   };
 
   const handleToggleNode = async (node: Node) => {
     try {
       addToast({
         type: 'info',
-        title: 'Tính năng đang phát triển',
-        message: `Toggle status cho node "${node.name}" sẽ có sẵn trong phiên bản tiếp theo`
+        title: 'Đang xử lý',
+        message: `Đang thay đổi trạng thái node "${node.name}"...`
+      });
+      await api.toggleNode(node.id);
+      await fetchNodes();
+      addToast({
+        type: 'success',
+        title: 'Thành công',
+        message: `Trạng thái node "${node.name}" đã được thay đổi`
       });
     } catch (error) {
       console.error('Error toggling node:', error);
+      addToast({
+        type: 'error',
+        title: 'Thất bại',
+        message: 'Không thể thay đổi trạng thái node'
+      });
     }
   };
 
-  const handleRefreshNode = async (node: Node) => {
-    try {
-      addToast({
-        type: 'info',
-        title: 'Đang làm mới',
-        message: `Đang làm mới thông tin node "${node.name}"...`
-      });
-      
-      await api.checkNode(node.id);
-      await fetchNodes();
-      
-      addToast({
-        type: 'success',
-        title: 'Làm mới thành công',
-        message: `Thông tin node "${node.name}" đã được cập nhật`
-      });
-    } catch (error) {
-      console.error('Error refreshing node:', error);
-      addToast({
-        type: 'error',
-        title: 'Làm mới thất bại',
-        message: `Không thể làm mới thông tin node "${node.name}"`
-      });
-    }
+  const handleRefreshNode = (node: Node) => {
+    setSelectedNode(node);
+    setCheckModalOpen(true);
   };
 
   const getSecondaryActionOptions = (node: Node) => [
     {
-      key: 'configure-3proxy',
-      label: 'Cấu hình 3Proxy',
-      icon: <Settings className="w-4 h-4" />,
-      onClick: () => handleConfigure3Proxy(node),
-    },
-    {
       key: 'initialize-node',
-      label: 'Khởi tạo Node',
+      label: 'Cài đặt 3Proxy',
       icon: <Terminal className="w-4 h-4" />,
       onClick: () => handleInitializeNode(node),
     },
@@ -238,7 +205,7 @@ const NodesPage: React.FC = () => {
     },
     {
       key: 'refresh',
-      label: 'Làm mới',
+      label: 'Kiểm tra Node',
       icon: <RefreshCw className="w-4 h-4" />,
       onClick: () => handleRefreshNode(node),
     },
@@ -284,7 +251,7 @@ const NodesPage: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'ONLINE':
+      case 'ACTIVE':
         return 'bg-green-100 text-green-800';
       case 'OFFLINE':
         return 'bg-gray-100 text-gray-800';
@@ -299,7 +266,7 @@ const NodesPage: React.FC = () => {
 
   const getStatusDot = (status: string) => {
     switch (status) {
-      case 'ONLINE':
+      case 'ACTIVE':
         return 'bg-green-500';
       case 'OFFLINE':
         return 'bg-gray-400';
@@ -329,6 +296,7 @@ const NodesPage: React.FC = () => {
   }
 
   return (
+    <>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -355,7 +323,7 @@ const NodesPage: React.FC = () => {
             <div className="ml-4">
               <p className="text-sm text-gray-600">Online</p>
               <p className="text-2xl font-bold text-gray-900">
-                {nodes.filter(n => n.status === 'ONLINE').length}
+                {nodes.filter(n => n.status === 'ACTIVE').length}
               </p>
             </div>
           </div>
@@ -402,7 +370,7 @@ const NodesPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-4 bg-white p-4 rounded-lg border border-gray-200">
         <div className="flex-1">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -422,19 +390,20 @@ const NodesPage: React.FC = () => {
             onChange={setFilterStatus}
             options={[
               { value: 'all', label: 'Tất cả trạng thái' },
-              { value: 'ONLINE', label: 'Online' },
+              { value: 'ACTIVE', label: 'Hoạt động' },
               { value: 'OFFLINE', label: 'Offline' },
               { value: 'ERROR', label: 'Lỗi' },
               { value: 'PENDING', label: 'Pending' }
             ]}
-            className="min-w-[180px]"
+            className="flex-1 sm:min-w-[180px] sm:flex-none"
           />
         </div>
       </div>
 
-      {/* Nodes Table */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <table className="w-full">
+      {/* Nodes Table with Horizontal Scroll */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -492,15 +461,6 @@ const NodesPage: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">
-                      {/* Primary Actions */}
-                      <button 
-                        onClick={() => handleTestConnection(node)}
-                        className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50 transition-colors"
-                        title="Test kết nối"
-                      >
-                        <Activity className="w-4 h-4" />
-                      </button>
-                      
                       {/* Secondary Actions Dropdown */}
                       <ActionDropdown 
                         options={getSecondaryActionOptions(node)}
@@ -519,7 +479,10 @@ const NodesPage: React.FC = () => {
           </div>
         )}
       </div>
+    </div>
     
+    </div>
+
     {/* Initialize 3Proxy Modal */}
     {selectedNode && (
       <Initialize3ProxyModal
@@ -539,7 +502,30 @@ const NodesPage: React.FC = () => {
         }}
       />
     )}
-  </div>
+
+    {/* Logs Modal */}
+    <LogsModal
+      isOpen={logsModalOpen}
+      onClose={() => {
+        setLogsModalOpen(false);
+        setCurrentLogs('');
+      }}
+      title={`Logs: ${selectedNode?.name}`}
+      logs={currentLogs}
+      loading={logsLoading}
+      onRefresh={() => selectedNode && handleViewLogs(selectedNode)}
+    />
+
+    {/* Check/Refresh Modal */}
+    {selectedNode && (
+      <CheckNodeModal
+        isOpen={checkModalOpen}
+        onClose={() => setCheckModalOpen(false)}
+        node={selectedNode}
+        onSuccess={fetchNodes}
+      />
+    )}
+    </>
   );
 };
 

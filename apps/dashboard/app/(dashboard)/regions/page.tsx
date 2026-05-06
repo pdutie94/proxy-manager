@@ -242,7 +242,7 @@ const RegionsPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row gap-4 bg-white p-4 rounded-lg border border-gray-200">
         <div className="flex-1">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -265,7 +265,7 @@ const RegionsPage: React.FC = () => {
               { value: 'active', label: 'Đang hoạt động' },
               { value: 'inactive', label: 'Không hoạt động' }
             ]}
-            className="min-w-[180px]"
+            className="flex-1 sm:min-w-[180px] sm:flex-none"
           />
         </div>
       </div>

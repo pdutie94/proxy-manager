@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService, NodeStatus, PortStatus, ProxyStatus } from '@proxy-manager/db';
 import { CONFIG } from '@proxy-manager/common';
-
 @Injectable()
 export class NodeService {
   constructor(private readonly prisma: PrismaService) {}
@@ -86,11 +85,14 @@ export class NodeService {
     const node = await this.prisma.node.findUnique({ where: { id: nodeId } });
     if (!node) throw new Error('Node not found');
 
+    const portStart = node.proxyPortStart || 10000;
+    const portEnd = node.proxyPortEnd || 20000;
+
     // Pre-generate port range if not exists
     const existingPorts = await this.prisma.port.count({ where: { nodeId } });
     if (existingPorts === 0) {
       const ports = [];
-      for (let port = CONFIG.PORT_RANGE_START; port <= CONFIG.PORT_RANGE_END; port++) {
+      for (let port = portStart; port <= portEnd; port++) {
         ports.push({ nodeId, port, status: PortStatus.FREE });
       }
 

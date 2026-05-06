@@ -5,6 +5,7 @@ import { HealthServer } from './health/server';
 import { BandwidthCollector } from './events/bandwidth-collector';
 import { MetricsCollector } from './events/metrics-collector';
 import { MockRedis } from './redis/mock-redis';
+import { logger } from './logger';
 
 const NODE_ID = parseInt(process.env.NODE_ID || '1');
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
@@ -12,8 +13,8 @@ const API_URL = process.env.API_URL || 'http://localhost:3001';
 const DRY_RUN = process.env.DRY_RUN === 'true';
 
 async function main() {
-  console.log(`Starting Proxy Agent for Node ${NODE_ID}`);
-  console.log(`DRY_RUN: ${DRY_RUN}`);
+  logger.info(`Starting Proxy Agent for Node ${NODE_ID}`);
+  logger.info(`DRY_RUN: ${DRY_RUN}`);
 
   const redis = (process.env.NODE_ENV === 'development' && !process.env.REDIS_URL)
     ? new MockRedis() as any
@@ -50,11 +51,11 @@ async function main() {
   await consumer.reconcile();
   await consumer.start();
 
-  console.log('Agent ready');
+  logger.info('Agent ready');
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
-    console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
+    logger.info(`\nReceived ${signal}. Starting graceful shutdown...`);
     await consumer.stop();
     await healthServer.stop();
     bandwidthCollector.stop();
@@ -64,7 +65,7 @@ async function main() {
       redis.disconnect();
     }
     
-    console.log('Graceful shutdown completed');
+    logger.info('Graceful shutdown completed');
     process.exit(0);
   };
 
@@ -72,4 +73,4 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-main().catch(console.error);
+main().catch(err => logger.error(err));

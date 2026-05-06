@@ -5,6 +5,8 @@ export enum ProxyEventType {
   PROXY_EXPIRE = 'PROXY_EXPIRE',
   PROXY_RENEW = 'PROXY_RENEW',
   PROXY_APPLIED = 'PROXY_APPLIED',
+  NODE_SUSPEND = 'NODE_SUSPEND',
+  NODE_RESUME = 'NODE_RESUME',
 }
 
 // Event Payload

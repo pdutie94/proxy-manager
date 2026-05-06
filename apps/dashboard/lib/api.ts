@@ -241,21 +241,33 @@ class ApiClient {
     });
   }
 
-  async initializeNode(id: number): Promise<{
+  async initializeNode(id: number, force = false): Promise<{
     node: any;
     initResult: {
       success: boolean;
       message: string;
+      code?: string;
       details?: any;
     };
   }> {
-    return this.request(`/nodes/${id}/initialize`, {
+    const query = force ? '?force=true' : '';
+    return this.request(`/nodes/${id}/initialize${query}`, {
       method: 'POST',
     });
   }
 
   async getNodeStats(id: number): Promise<any> {
     return this.request(`/nodes/${id}/stats`);
+  }
+
+  async toggleNode(id: number): Promise<any> {
+    return this.request(`/nodes/${id}/toggle`, {
+      method: 'POST',
+    });
+  }
+
+  async getNodeLogs(id: number): Promise<{ logs: string }> {
+    return this.request(`/nodes/${id}/logs`);
   }
 
   // Regions Management

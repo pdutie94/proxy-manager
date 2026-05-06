@@ -1,9 +1,9 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { PrismaService, ProxyStatus } from '@proxy-manager/db';
-import { ProxyEventType, generateCorrelationId, generateConfigHash } from '@proxy-manager/common';
+import { PrismaService, ProxyStatus, EventOutboxStatus } from '@proxy-manager/db';
+import { ProxyEvent, ProxyEventType, generateCorrelationId, generateConfigHash } from '@proxy-manager/common';
+import { randomBytes } from 'crypto';
 import { EventService } from '../event/event.service';
 import { AllocatorService } from '../allocator/allocator.service';
-
 @Injectable()
 export class ProxyService {
   constructor(
@@ -38,7 +38,7 @@ export class ProxyService {
 
     // Allocate resources and create proxy in the same transaction
     const allocation = await this.allocatorService.allocate(data.nodeId, async (tx, alloc) => {
-      return await tx.proxy.create({
+      const proxy = await tx.proxy.create({
         data: {
           userId: data.userId,
           nodeId: alloc.nodeId,
@@ -51,6 +51,19 @@ export class ProxyService {
           expiresAt: data.expiresAt ? new Date(data.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
         },
       });
+
+      // Create audit log inside transaction
+      await tx.auditLog.create({
+        data: {
+          userId: data.userId,
+          action: 'CREATE',
+          entityType: 'PROXY',
+          entityId: proxy.id,
+          details: { nodeId: alloc.nodeId, portId: alloc.portId.toString() },
+        },
+      });
+
+      return proxy;
     });
 
     const proxy = allocation.result!;
@@ -141,20 +154,64 @@ export class ProxyService {
     };
   }
 
+  async createBulk(data: {
+    userId: number;
+    nodeId?: number;
+    expiresAt: string;
+    count: number;
+  }) {
+    const results = [];
+    // Basic backpressure check for the whole batch
+    const pendingCount = await this.prisma.proxy.count({
+      where: { status: ProxyStatus.PENDING },
+    });
+    if (pendingCount + data.count > 2000) {
+      throw new ConflictException('System overloaded, cannot accept large batch');
+    }
+
+    for (let i = 0; i < data.count; i++) {
+      try {
+        const result = await this.create({
+          userId: data.userId,
+          nodeId: data.nodeId,
+          expiresAt: data.expiresAt,
+        });
+        results.push(result);
+      } catch (err) {
+        console.error(`Failed to create proxy ${i + 1}/${data.count}:`, err);
+      }
+    }
+    return { count: results.length, results };
+  }
+
   async delete(id: number) {
     const proxy = await this.prisma.proxy.findUnique({ where: { id } });
     if (!proxy) throw new NotFoundException('Proxy not found');
 
-    // Graceful delete: active -> suspended
-    await this.prisma.proxy.update({
-      where: { id },
-      data: { status: ProxyStatus.SUSPENDED },
+    // Graceful delete: active -> suspended, set deletedAt for future cleanup
+    const deletedAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes grace period
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.proxy.update({
+        where: { id },
+        data: { 
+          status: ProxyStatus.SUSPENDED,
+          deletedAt: deletedAt,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: proxy.userId,
+          action: 'DELETE',
+          entityType: 'PROXY',
+          entityId: proxy.id,
+          details: { nodeId: proxy.nodeId, graceful: true },
+        },
+      });
     });
 
-    // Release resources immediately
-    await this.allocatorService.release(proxy.id);
-
-    // Publish delete event
+    // Still publish delete event immediately to stop traffic at Agent level
     await this.eventService.publish({
       type: ProxyEventType.PROXY_DELETE,
       nodeId: proxy.nodeId,
@@ -164,20 +221,45 @@ export class ProxyService {
       correlationId: generateCorrelationId(),
     });
 
-    return { success: true };
+    return { success: true, deletedAt };
+  }
+
+  async deleteBulk(ids: number[]) {
+    const results = [];
+    for (const id of ids) {
+      try {
+        await this.delete(id);
+        results.push(id);
+      } catch (err) {
+        console.error(`Failed to delete proxy ${id}:`, err);
+      }
+    }
+    return { count: results.length, ids: results };
   }
 
   async renew(id: number, expiresAt: string) {
     const proxy = await this.prisma.proxy.findUnique({ where: { id } });
     if (!proxy) throw new NotFoundException('Proxy not found');
 
-    await this.prisma.proxy.update({
-      where: { id },
-      data: {
-        expiresAt: new Date(expiresAt),
-        status: ProxyStatus.ACTIVE,
-        version: { increment: 1 },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.proxy.update({
+        where: { id },
+        data: {
+          expiresAt: new Date(expiresAt),
+          status: ProxyStatus.ACTIVE,
+          version: { increment: 1 },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: proxy.userId,
+          action: 'RENEW',
+          entityType: 'PROXY',
+          entityId: proxy.id,
+          details: { expiresAt },
+        },
+      });
     });
 
     await this.eventService.publish({
@@ -201,6 +283,7 @@ export class ProxyService {
         lastConfigHash: configHash,
       },
     });
+
     return { success: true };
   }
 
@@ -212,10 +295,10 @@ export class ProxyService {
   }
 
   private generateUsername(): string {
-    return `user_${Math.random().toString(36).slice(2, 8)}`;
+    return `u_${randomBytes(4).toString('hex')}`;
   }
 
   private generatePassword(): string {
-    return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+    return randomBytes(12).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
   }
 }

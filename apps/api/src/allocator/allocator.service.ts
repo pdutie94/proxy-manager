@@ -55,7 +55,11 @@ export class AllocatorService {
 
       // Lazy generate IPv6 if none available
       if (!ip && node.ipv6Subnet) {
-        ip = await this.generateIpv6(tx, nodeId, node.ipv6Subnet);
+        await this.batchGenerateIpv6(tx, nodeId, node.ipv6Subnet, 100);
+        // Re-query for one of the newly generated IPs
+        ip = await tx.ipPool.findFirst({
+          where: { nodeId, status: IpStatus.FREE },
+        });
       }
 
       if (!ip) {
@@ -153,45 +157,29 @@ export class AllocatorService {
     return weightedNodes[0].weight > 0 ? weightedNodes[0].id : null;
   }
 
-  private async generateIpv6(
+  private async batchGenerateIpv6(
     tx: any,
     nodeId: number,
     subnet: string,
-    attempt: number = 0
-  ): Promise<{ id: bigint; nodeId: number; ipv6: string; status: IpStatus; createdAt: Date; cooldownUntil: Date | null; lastUsedAt: Date | null; usageCount: number }> {
-    if (attempt >= 10) {
-      throw new ConflictException('Failed to generate unique IPv6 after 10 attempts');
-    }
-
-    // Generate random IPv6 suffix from /64 subnet
-    // Example: 2001:db8::/64 -> 2001:db8::xxxx:xxxx:xxxx:xxxx
-    const suffix = Array.from({ length: 4 }, () =>
-      Math.floor(Math.random() * 65536).toString(16).padStart(4, '0')
-    ).join(':');
-
-    // Replace /64 with the suffix
+    count: number = 100
+  ): Promise<void> {
+    const ips = [];
     const baseSubnet = subnet.replace(/\/64$/, '');
-    const ipv6 = `${baseSubnet}${suffix}`;
 
-    // Check if already exists
-    const existing = await tx.ipPool.findFirst({
-      where: { ipv6 },
-    });
-
-    if (existing) {
-      // Retry with different suffix (recursion with limit)
-      return this.generateIpv6(tx, nodeId, subnet, attempt + 1);
+    for (let i = 0; i < count; i++) {
+      const suffix = Array.from({ length: 4 }, () =>
+        Math.floor(Math.random() * 65536).toString(16).padStart(4, '0')
+      ).join(':');
+      ips.push({
+        nodeId,
+        ipv6: `${baseSubnet}${suffix}`,
+        status: IpStatus.FREE,
+      });
     }
 
-    // Create new IP
-    return await tx.ipPool.create({
-      data: {
-        nodeId,
-        ipv6,
-        status: IpStatus.IN_USE,
-        lastUsedAt: new Date(),
-        usageCount: 1,
-      },
+    await tx.ipPool.createMany({
+      data: ips,
+      skipDuplicates: true,
     });
   }
 }

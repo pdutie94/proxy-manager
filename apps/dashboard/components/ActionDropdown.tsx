@@ -25,7 +25,42 @@ const ActionDropdown: React.FC<ActionDropdownProps> = ({
   className = ''
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const updateCoords = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setCoords({
+        top: rect.bottom, // Viewport-relative
+        left: rect.right, // Viewport-relative
+        width: 192,
+      });
+      
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      
+      if (spaceBelow < 250 && spaceAbove > spaceBelow) {
+        setOpenUp(true);
+      } else {
+        setOpenUp(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      updateCoords();
+      window.addEventListener('scroll', updateCoords, true);
+      window.addEventListener('resize', updateCoords);
+    }
+    return () => {
+      window.removeEventListener('scroll', updateCoords, true);
+      window.removeEventListener('resize', updateCoords);
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -48,8 +83,9 @@ const ActionDropdown: React.FC<ActionDropdownProps> = ({
   };
 
   return (
-    <div className={`relative ${className}`} ref={dropdownRef}>
+    <div className={className} ref={dropdownRef}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
@@ -61,7 +97,14 @@ const ActionDropdown: React.FC<ActionDropdownProps> = ({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 z-50 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg">
+        <div 
+          className="fixed z-[9999] w-48 bg-white border border-gray-200 rounded-md shadow-lg"
+          style={{
+            top: openUp ? 'auto' : `${coords.top + 4}px`,
+            bottom: openUp ? `${window.innerHeight - (coords.top - (buttonRef.current?.offsetHeight || 0)) + 4}px` : 'auto',
+            left: `${coords.left - 192}px`,
+          }}
+        >
           <div className="py-1 max-h-60 overflow-auto">
             {options.map((option, index) => (
               <React.Fragment key={option.key}>

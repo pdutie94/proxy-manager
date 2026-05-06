@@ -30,7 +30,7 @@ export class SshService {
   // PUBLIC API
   // ========================
 
-  async testNodeConnection(node: Node): Promise<NodeConnectionTestResult> {
+  async testNodeConnection(node: Node, isInitializing = false): Promise<NodeConnectionTestResult> {
     let conn: Client | null = null;
 
     try {
@@ -42,11 +42,11 @@ export class SshService {
       if (!system.ok) return system;
 
       // 3. Agent
-      const agent = await this.testAgent(conn);
+      const agent = await this.testAgent(conn, isInitializing);
       if (!agent.ok) return agent;
 
       // 4. Capability
-      const cap = await this.testCapability(conn);
+      const cap = await this.testCapability(conn, isInitializing);
       if (!cap.ok) return cap;
 
       return {
@@ -67,12 +67,12 @@ export class SshService {
     }
   }
 
-  async initializeNode(node: Node): Promise<{ success: boolean; message: string; details?: any }> {
+  async initializeNode(node: Node, force = false): Promise<{ success: boolean; message: string; code?: string; details?: any }> {
     let conn: Client | null = null;
     
     try {
-      // First test connection
-      const connectionTest = await this.testNodeConnection(node);
+      // First test connection - allow 3proxy missing during initialization
+      const connectionTest = await this.testNodeConnection(node, true);
       if (!connectionTest.ok) {
         return {
           success: false,
@@ -97,6 +97,18 @@ export class SshService {
         };
       }
 
+      // Check for existing installation if not forced
+      if (!force) {
+        const checkInstall = await this.execSSH(conn, 'which 3proxy');
+        if (checkInstall.exitCode === 0) {
+          return {
+            success: false,
+            code: 'ALREADY_INSTALLED',
+            message: '3Proxy đã được cài đặt trên node này.',
+          };
+        }
+      }
+
       // Detect package manager
       const pmCheck = await this.execSSH(conn, 'command -v apt-get && echo "apt" || (command -v dnf && echo "dnf" || (command -v yum && echo "yum" || echo "unknown"))');
       const packageManager = pmCheck.stdout.trim().split('\n').pop()?.trim() || 'unknown';
@@ -113,6 +125,18 @@ export class SshService {
       const pkgCommands = this.getPackageCommands(packageManager);
 
       const initSteps: { name: string; command: string; timeout?: number; critical?: boolean }[] = [
+        {
+          name: 'Increase FD Limit (ulimit)',
+          command: [
+            'echo "* soft nofile 65535" >> /etc/security/limits.conf',
+            'echo "* hard nofile 65535" >> /etc/security/limits.conf',
+            'echo "root soft nofile 65535" >> /etc/security/limits.conf',
+            'echo "root hard nofile 65535" >> /etc/security/limits.conf',
+            'sysctl -w fs.file-max=100000',
+            'echo "fs.file-max=100000" >> /etc/sysctl.conf'
+          ].join(' && '),
+          critical: false,
+        },
         {
           name: 'Update package lists',
           command: pkgCommands.update,
@@ -136,6 +160,11 @@ export class SshService {
         {
           name: 'Get version info',
           command: 'cd /tmp/3proxy && git describe --tags --always 2>/dev/null || git rev-parse --short HEAD',
+          critical: false,
+        },
+        {
+          name: 'Stop existing 3proxy service',
+          command: 'systemctl stop 3proxy 2>/dev/null || killall -9 3proxy 2>/dev/null || true',
           critical: false,
         },
         {
@@ -329,17 +358,17 @@ export class SshService {
       case 'apt':
         return {
           update: 'apt-get update -qq',
-          installBuildDeps: 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git make gcc',
+          installBuildDeps: 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git make gcc libssl-dev zlib1g-dev',
         };
       case 'dnf':
         return {
           update: 'dnf makecache --quiet',
-          installBuildDeps: 'dnf install -y git make gcc',
+          installBuildDeps: 'dnf install -y git make gcc openssl-devel zlib-devel',
         };
       case 'yum':
         return {
           update: 'yum makecache fast --quiet',
-          installBuildDeps: 'yum install -y git make gcc',
+          installBuildDeps: 'yum install -y git make gcc openssl-devel zlib-devel',
         };
       default:
         return {
@@ -507,7 +536,7 @@ export class SshService {
     }
   }
 
-  private async testAgent(conn: Client): Promise<NodeConnectionTestResult> {
+  private async testAgent(conn: Client, isInitializing = false): Promise<NodeConnectionTestResult> {
     try {
       const agent = await this.execSSH(conn, 'test -f /usr/local/bin/proxy-agent && echo 1 || echo 0');
       const proxy = await this.execSSH(conn, 'which 3proxy >/dev/null 2>&1 && echo 1 || echo 0');
@@ -518,7 +547,7 @@ export class SshService {
 
       const issues = [];
 
-      if (!proxyInstalled) issues.push('3proxy missing');
+      if (!proxyInstalled && !isInitializing) issues.push('3proxy missing');
 
       // ⚠️ agent có thể chưa có khi onboarding → warning thôi
       return {
@@ -541,7 +570,7 @@ export class SshService {
     }
   }
 
-  private async testCapability(conn: Client): Promise<NodeConnectionTestResult> {
+  private async testCapability(conn: Client, isInitializing = false): Promise<NodeConnectionTestResult> {
     try {
       const [fd, ipv6] = await Promise.all([
         this.execSSH(conn, 'ulimit -n'),
@@ -553,7 +582,7 @@ export class SshService {
 
       const issues = [];
 
-      if (fdLimit < 4096) {
+      if (fdLimit < 4096 && !isInitializing) {
         issues.push(`FD limit low: ${fdLimit}`);
       }
 
@@ -612,5 +641,18 @@ export class SshService {
       code: 'SSH_UNREACHABLE',
       message: msg,
     };
+  }
+
+  async getNodeLogs(node: Node, lines = 100): Promise<string> {
+    let conn: Client | null = null;
+    try {
+      conn = await this.connectSSH(node);
+      const result = await this.execSSH(conn, `tail -n ${lines} /var/log/3proxy/3proxy.log 2>/dev/null || echo "Log file not found at /var/log/3proxy/3proxy.log"`);
+      return result.stdout;
+    } catch (err: any) {
+      return `Failed to fetch logs: ${err.message}`;
+    } finally {
+      conn?.end();
+    }
   }
 }

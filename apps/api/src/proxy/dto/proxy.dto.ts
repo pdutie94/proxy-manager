@@ -45,3 +45,26 @@ export class TrafficBatchDto {
   @IsNotEmpty()
   records: any[];
 }
+export class CreateBulkProxyDto {
+  @IsInt()
+  @IsNotEmpty()
+  userId: number;
+
+  @IsInt()
+  @IsOptional()
+  nodeId?: number;
+
+  @IsString()
+  @IsNotEmpty()
+  expiresAt: string;
+
+  @IsInt()
+  @IsNotEmpty()
+  count: number;
+}
+
+export class DeleteBulkProxyDto {
+  @IsArray()
+  @IsNotEmpty()
+  ids: number[];
+}

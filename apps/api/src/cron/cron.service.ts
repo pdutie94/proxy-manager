@@ -28,27 +28,33 @@ export class CronService {
       },
     });
 
+    if (expired.length === 0) return;
+
+    // Update status in batch
+    await this.prisma.proxy.updateMany({
+      where: { id: { in: expired.map(p => p.id) } },
+      data: { status: ProxyStatus.EXPIRED },
+    });
+
     for (const proxy of expired) {
-      // Update status
-      await this.prisma.proxy.update({
-        where: { id: proxy.id },
-        data: { status: ProxyStatus.EXPIRED },
-      });
+      try {
+        // Release resources
+        await this.allocatorService.release(proxy.id);
 
-      // Release resources
-      await this.allocatorService.release(proxy.id);
+        // Publish expire event
+        await this.eventService.publish({
+          type: ProxyEventType.PROXY_EXPIRE,
+          nodeId: proxy.nodeId,
+          proxyId: Number(proxy.id),
+          version: proxy.version + 1,
+          configHash: '',
+          correlationId: generateCorrelationId(),
+        });
 
-      // Publish expire event
-      await this.eventService.publish({
-        type: ProxyEventType.PROXY_EXPIRE,
-        nodeId: proxy.nodeId,
-        proxyId: Number(proxy.id),
-        version: proxy.version + 1,
-        configHash: '',
-        correlationId: generateCorrelationId(),
-      });
-
-      this.logger.log(`Proxy ${proxy.id} expired`);
+        this.logger.log(`Proxy ${proxy.id} expired`);
+      } catch (err) {
+        this.logger.error(`Failed to process expired proxy ${proxy.id}:`, err);
+      }
     }
   }
 
@@ -136,6 +142,37 @@ export class CronService {
 
     if (result.count > 0) {
       this.logger.log(`Reset ${result.count} cooled IPs back to FREE`);
+    }
+  }
+
+  // Every minute: Process graceful deletes
+  @Cron('0 * * * * *')
+  async processGracefulDeletes(): Promise<void> {
+    const now = new Date();
+    const toDelete = await this.prisma.proxy.findMany({
+      where: {
+        status: ProxyStatus.SUSPENDED,
+        deletedAt: { lte: now },
+      },
+    });
+
+    if (toDelete.length === 0) return;
+
+    for (const proxy of toDelete) {
+      try {
+        // Release resources (Port + IP cooldown)
+        await this.allocatorService.release(proxy.id);
+
+        // Mark as EXPIRED
+        await this.prisma.proxy.update({
+          where: { id: proxy.id },
+          data: { status: ProxyStatus.EXPIRED },
+        });
+
+        this.logger.log(`Graceful delete completed for proxy ${proxy.id}`);
+      } catch (err) {
+        this.logger.error(`Failed to process graceful delete for proxy ${proxy.id}:`, err);
+      }
     }
   }
 }
