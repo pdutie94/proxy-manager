@@ -115,7 +115,7 @@ export class ConfigRenderer {
           await execAsync(`3proxy -c ${tempFile}`);
         }
       } catch (err) {
-        logger.warn('Config validation warning:', err);
+        logger.warn({ err }, 'Config validation warning');
       }
 
       // Backup current
@@ -131,7 +131,7 @@ export class ConfigRenderer {
 
       logger.info(`Updated shard ${shard} with ${proxies.length} proxies`);
     } catch (err) {
-      logger.error(`Failed to update shard ${shard}:`, err);
+      logger.error({ err, shard }, 'Failed to update shard');
       
       // Restore backup on failure
       if (existsSync(backupFile)) {
@@ -226,7 +226,7 @@ export class ConfigRenderer {
         }
         logger.info('All proxy configurations removed (Node Suspended)');
       } catch (err) {
-        logger.error('Failed to clear proxy configs:', err);
+        logger.error({ err }, 'Failed to clear proxy configs');
       }
     }
   }

@@ -40,7 +40,7 @@ export class BandwidthCollector {
         await this.scanLogFile();
         await this.flush();
       } catch (err) {
-        logger.error('BandwidthCollector error:', err);
+        logger.error({ err }, 'BandwidthCollector error');
       }
     }, CONFIG.TRAFFIC_BATCH_SECONDS * 1000);
   }
@@ -67,7 +67,7 @@ export class BandwidthCollector {
       await this.buffer.clear();
       logger.info(`Flushed ${entries.length} bandwidth records`);
     } catch (err) {
-      logger.warn('Failed to flush bandwidth records, keeping buffer:', err);
+      logger.warn({ err }, 'Failed to flush bandwidth records, keeping buffer');
     }
   }
 

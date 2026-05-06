@@ -40,7 +40,7 @@ export class EventConsumer {
       logger.info('Created consumer group');
     } catch (err: any) {
       if (!err.message.includes('BUSYGROUP')) {
-        logger.error('Failed to create consumer group:', err);
+        logger.error({ err }, 'Failed to create consumer group');
       }
     }
 
@@ -80,12 +80,12 @@ export class EventConsumer {
                   this.priorityQueue.add(id, fields, event);
                 }
               } catch (err) {
-                logger.error('Failed to parse event:', err);
+                logger.error({ err }, 'Failed to parse event');
               }
             }
           }
         } catch (err) {
-          logger.error('Event reader error:', err);
+          logger.error({ err }, 'Event reader error');
           await new Promise(r => setTimeout(r, 5000));
         }
       }
@@ -102,7 +102,7 @@ export class EventConsumer {
           }
         }
       } catch (err) {
-        logger.error('Priority queue processor error:', err);
+        logger.error({ err }, 'Priority queue processor error');
       }
     }, 100);
   }
@@ -112,7 +112,7 @@ export class EventConsumer {
       try {
         await this.reclaimFailedEvents();
       } catch (err) {
-        logger.error('Reclaim task error:', err);
+        logger.error({ err }, 'Reclaim task error');
       }
     }, 30000); // Every 30 seconds
   }
@@ -122,7 +122,7 @@ export class EventConsumer {
       try {
         await this.reconcile();
       } catch (err) {
-        logger.error('Periodic reconcile failed:', err);
+        logger.error({ err }, 'Periodic reconcile failed');
       }
     }, CONFIG.RECONCILE_INTERVAL_MINUTES * 60 * 1000);
   }
@@ -152,7 +152,7 @@ export class EventConsumer {
     try {
       pendingSummary = await this.redis.xpending(this.streamKey, this.consumerGroup);
     } catch (err) {
-      logger.error('Unable to fetch XPENDING summary:', err);
+      logger.error({ err }, 'Unable to fetch XPENDING summary');
       return;
     }
 
@@ -200,7 +200,7 @@ export class EventConsumer {
             }
           }
         } catch (err) {
-          logger.error(`Failed to reclaim event ${messageId}:`, err);
+          logger.error({ err, messageId }, 'Failed to reclaim event');
         }
       } else if (deliveryCount >= 3) {
         logger.warn(`Event ${messageId} failed ${deliveryCount} times, marking as dead`);
@@ -298,7 +298,7 @@ export class EventConsumer {
 
       logger.info(`Processed ${event.type} for proxy ${event.proxyId}`);
     } catch (err) {
-      logger.error('Failed to process message:', err);
+      logger.error({ err }, 'Failed to process message');
       this.config.metrics.recordError();
     }
   }
