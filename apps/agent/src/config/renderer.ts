@@ -16,6 +16,7 @@ interface ProxyConfig {
   port: number;
   username: string;
   password: string;
+  maxConn?: number;
 }
 
 class Debouncer {
@@ -66,6 +67,7 @@ export class ConfigRenderer {
       port: event.port!,
       username: event.username!,
       password: event.password!,
+      maxConn: CONFIG.MAX_CONN_PER_PROXY,
     };
 
     this.proxies.set(Number(event.proxyId), config);
@@ -90,9 +92,11 @@ export class ConfigRenderer {
     }
 
     // Build config content
-    const lines = proxies.map(p => 
+    const maxConn = parseInt(process.env.PROXY_MAX_CONN || '') || CONFIG.MAX_CONN_PER_PROXY;
+    const lines = proxies.map(p =>
       `# ProxyID: ${p.proxyId}\n` +
       `log /var/log/3proxy/bandwidth.log "L${p.proxyId},%I,%O,%t"\n` +
+      `maxconn ${p.maxConn ?? maxConn}\n` +
       `socks -p${p.port.port} -e${p.ipPool.ipv6} -i0.0.0.0\n` +
       `users ${p.username}:CL:${p.password}`
     );
@@ -164,6 +168,7 @@ export class ConfigRenderer {
         ipPool: { ipv6: c.ipv6 },
         username: c.username,
         password: c.password,
+        maxConn: c.maxConn,
       }));
   }
 
