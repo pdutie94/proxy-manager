@@ -78,7 +78,7 @@ const NodeModal: React.FC<NodeModalProps> = ({
         name: editingNode.name || '',
         host: editingNode.host || '',
         ipAddress: editingNode.ipAddress || '',
-        regionId: editingNode.regionId || null,
+        regionId: editingNode.regionId ? String(editingNode.regionId) : null,
         sshPort: editingNode.sshPort || 22,
         sshUsername: editingNode.sshUsername || '',
         sshPassword: editingNode.sshPassword || '',
