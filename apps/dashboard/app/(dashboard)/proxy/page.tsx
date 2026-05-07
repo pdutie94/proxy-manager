@@ -18,7 +18,7 @@ const ProxyPage: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
   const { addToast } = useToast();
-  const { openConfirmModal, closeConfirmModal } = useModal();
+  const { openConfirmModal, closeConfirmModal, openCreateProxyModal, closeCreateProxyModal } = useModal();
 
   useEffect(() => {
     fetchData();
@@ -46,12 +46,41 @@ const ProxyPage: React.FC = () => {
   };
 
   const handleCreateProxy = async () => {
-    // In a real app, this would open a modal
-    // For now, let's just show a toast or implement a simple creation if possible
-    addToast({
-      type: 'info',
-      title: 'Tính năng đang phát triển',
-      message: 'Vui lòng sử dụng API hoặc modal để tạo proxy (sẽ sớm hoàn thiện)'
+    openCreateProxyModal(async (data) => {
+      try {
+        if (data.count > 1) {
+          await api.createBulkProxies({
+            userId: 1, // default for now, could be dynamic later
+            nodeId: data.nodeId,
+            expiresAt: data.expiresAt,
+            count: data.count,
+          });
+          addToast({
+            type: 'success',
+            title: 'Tạo thành công',
+            message: `Đã đưa yêu cầu tạo ${data.count} proxy vào hàng đợi`
+          });
+        } else {
+          await api.createProxy({
+            userId: 1, // default for now
+            nodeId: data.nodeId,
+            expiresAt: data.expiresAt,
+          });
+          addToast({
+            type: 'success',
+            title: 'Tạo thành công',
+            message: 'Proxy đã được khởi tạo thành công'
+          });
+        }
+        fetchData();
+        closeCreateProxyModal();
+      } catch (error) {
+        addToast({
+          type: 'error',
+          title: 'Lỗi',
+          message: 'Không thể tạo proxy, vui lòng thử lại'
+        });
+      }
     });
   };
 

@@ -106,6 +106,13 @@ class ApiClient {
     });
   }
 
+  async createBulkProxies(data: { userId: number; nodeId?: number; expiresAt?: string; count: number }): Promise<any> {
+    return this.request('/proxies/bulk', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async deleteProxy(id: string): Promise<void> {
     return this.request<void>(`/proxies/${id}`, {
       method: 'DELETE',

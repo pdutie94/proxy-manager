@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import NodeModal from './NodeModal';
 import RegionModal from './RegionModal';
 import ConfirmModal from './ConfirmModal';
+import CreateProxyModal from './CreateProxyModal';
 
 interface ModalContextType {
   openNodeModal: (editingNode?: any, onSubmit?: (data: any) => Promise<void>) => void;
@@ -13,6 +14,8 @@ interface ModalContextType {
   closeRegionModal: () => void;
   openConfirmModal: (props: Omit<ConfirmModalProps, 'isOpen' | 'onClose'>) => void;
   closeConfirmModal: () => void;
+  openCreateProxyModal: (onSubmit: (data: any) => Promise<void>) => void;
+  closeCreateProxyModal: () => void;
 }
 
 interface ConfirmModalProps {
@@ -58,6 +61,11 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     confirmText: 'Xóa',
     cancelText: 'Hủy',
     loading: false,
+  });
+
+  const [createProxyModalState, setCreateProxyModalState] = useState({
+    isOpen: false,
+    onSubmit: null as ((data: any) => Promise<void>) | null,
   });
 
   const openNodeModal = useCallback((editingNode?: any, onSubmit?: (data: any) => Promise<void>) => {
@@ -109,6 +117,20 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setConfirmModalState(prev => ({ ...prev, isOpen: false }));
   }, []);
 
+  const openCreateProxyModal = useCallback((onSubmit: (data: any) => Promise<void>) => {
+    setCreateProxyModalState({
+      isOpen: true,
+      onSubmit,
+    });
+  }, []);
+
+  const closeCreateProxyModal = useCallback(() => {
+    setCreateProxyModalState({
+      isOpen: false,
+      onSubmit: null,
+    });
+  }, []);
+
   return (
     <ModalContext.Provider
       value={{
@@ -118,6 +140,8 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         closeRegionModal,
         openConfirmModal,
         closeConfirmModal,
+        openCreateProxyModal,
+        closeCreateProxyModal,
       }}
     >
       {children}
@@ -150,6 +174,13 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           confirmText={confirmModalState.confirmText}
           cancelText={confirmModalState.cancelText}
           loading={confirmModalState.loading}
+        />
+
+        {/* Create Proxy Modal */}
+        <CreateProxyModal
+          isOpen={createProxyModalState.isOpen}
+          onClose={closeCreateProxyModal}
+          onSubmit={createProxyModalState.onSubmit || (async () => {})}
         />
       </>
     </ModalContext.Provider>

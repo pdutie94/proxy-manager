@@ -140,7 +140,7 @@ model IpPool {
   createdAt      DateTime  @default(now()) @map("created_at")
   
   // Relation
-  proxy          Proxy?
+  proxies        Proxy[]
   
   @@index([nodeId, status, cooldownUntil])
   @@map("ip_pools")
@@ -156,7 +156,7 @@ model Port {
   createdAt   DateTime   @default(now()) @map("created_at")
   
   // Relation
-  proxy       Proxy?
+  proxies     Proxy[]
   
   @@unique([nodeId, port])
   @@index([nodeId, status])
@@ -171,10 +171,10 @@ model Proxy {
   nodeId          Int         @map("node_id")
   node            Node        @relation(fields: [nodeId], references: [id])
   
-  ipPoolId        BigInt      @unique @map("ip_pool_id")
+  ipPoolId        BigInt      @map("ip_pool_id")
   ipPool          IpPool      @relation(fields: [ipPoolId], references: [id])
   
-  portId          BigInt      @unique @map("port_id")
+  portId          BigInt      @map("port_id")
   port            Port        @relation(fields: [portId], references: [id])
   
   username        String      @db.VarChar(50)
