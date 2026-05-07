@@ -123,7 +123,7 @@ export class ProxyService {
     if (nodeId) where.nodeId = nodeId;
     if (status) where.status = status.toUpperCase() as ProxyStatus;
     
-    return this.prisma.proxy.findMany({
+    const proxies = await this.prisma.proxy.findMany({
       where,
       include: {
         node: { select: { id: true, name: true, ipAddress: true } },
@@ -132,6 +132,13 @@ export class ProxyService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return proxies.map(proxy => ({
+      ...proxy,
+      id: proxy.id.toString(),
+      ipv6: proxy.ipPool?.ipv6,
+      port: proxy.port?.port,
+    }));
   }
 
   async getById(id: number) {
@@ -151,6 +158,8 @@ export class ProxyService {
       id: proxy.id.toString(),
       ipPoolId: proxy.ipPoolId.toString(),
       portId: proxy.portId.toString(),
+      ipv6: proxy.ipPool?.ipv6,
+      port: proxy.port?.port,
     };
   }
 

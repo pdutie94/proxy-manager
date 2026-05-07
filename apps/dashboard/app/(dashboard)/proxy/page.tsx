@@ -18,7 +18,7 @@ const ProxyPage: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
   const { addToast } = useToast();
-  const { openConfirmModal } = useModal();
+  const { openConfirmModal, closeConfirmModal } = useModal();
 
   useEffect(() => {
     fetchData();
@@ -68,12 +68,14 @@ const ProxyPage: React.FC = () => {
             message: 'Proxy đã được xóa thành công'
           });
           fetchData();
+          closeConfirmModal();
         } catch (error) {
           addToast({
             type: 'error',
             title: 'Lỗi',
             message: 'Không thể xóa proxy'
           });
+          closeConfirmModal();
         }
       }
     });
