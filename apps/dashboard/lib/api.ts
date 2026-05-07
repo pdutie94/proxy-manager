@@ -126,6 +126,12 @@ class ApiClient {
     });
   }
 
+  async checkProxyConnection(id: string | number): Promise<{ ok: boolean; ip?: string; latency?: number; error?: string }> {
+    return this.request(`/proxies/${id}/check`, {
+      method: 'POST',
+    });
+  }
+
   // Nodes
 
   // Health

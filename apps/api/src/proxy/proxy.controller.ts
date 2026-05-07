@@ -58,4 +58,9 @@ export class ProxyController {
   async markApplied(@Param('id') id: string, @Body('configHash') configHash: string) {
     return this.proxyService.markApplied(parseInt(id), configHash);
   }
+
+  @Post(':id/check')
+  async checkConnection(@Param('id') id: string) {
+    return this.proxyService.checkConnection(parseInt(id));
+  }
 }

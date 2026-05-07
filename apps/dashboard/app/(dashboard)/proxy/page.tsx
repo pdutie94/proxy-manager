@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, Trash2, Clock, Shield, Globe, ExternalLink, RefreshCw, Copy, Check } from 'lucide-react';
+import { Plus, Search, Filter, Trash2, Clock, Shield, Globe, ExternalLink, RefreshCw, Copy, Check, Activity } from 'lucide-react';
 import { api, Proxy, Node } from '@/lib/api';
 import ActionDropdown from '@/components/ActionDropdown';
 import Dropdown from '@/components/Dropdown';
@@ -128,6 +128,36 @@ const ProxyPage: React.FC = () => {
         type: 'error',
         title: 'Lỗi',
         message: 'Không thể gia hạn proxy'
+      });
+    }
+  };
+
+  const handleCheckProxy = async (proxy: Proxy) => {
+    addToast({
+      type: 'info',
+      title: 'Đang kiểm tra',
+      message: `Đang kiểm tra kết nối SOCKS5 của proxy ${proxy.id}...`
+    });
+    try {
+      const result = await api.checkProxyConnection(proxy.id);
+      if (result.ok) {
+        addToast({
+          type: 'success',
+          title: 'Kết nối tốt',
+          message: `IP: ${result.ip} - Ping: ${result.latency}ms`
+        });
+      } else {
+        addToast({
+          type: 'error',
+          title: 'Lỗi kết nối',
+          message: result.error || 'Proxy không phản hồi'
+        });
+      }
+    } catch (error) {
+      addToast({
+        type: 'error',
+        title: 'Lỗi hệ thống',
+        message: 'Không thể thực hiện kiểm tra'
       });
     }
   };
@@ -300,6 +330,12 @@ const ProxyPage: React.FC = () => {
                           label: 'Copy Full Info', 
                           icon: <Copy className="w-4 h-4" />,
                           onClick: () => copyToClipboard(`${proxy.ipv6}:${proxy.port}:${proxy.username}:${proxy.password}`, proxy.id)
+                        },
+                        { 
+                          key: 'check', 
+                          label: 'Kiểm tra kết nối', 
+                          icon: <Activity className="w-4 h-4" />,
+                          onClick: () => handleCheckProxy(proxy)
                         },
                         { 
                           key: 'renew', 

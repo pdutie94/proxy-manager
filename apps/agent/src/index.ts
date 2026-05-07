@@ -8,8 +8,8 @@ import { MockRedis } from './redis/mock-redis';
 import { logger } from './logger';
 
 const NODE_ID = parseInt(process.env.NODE_ID || '1');
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const API_URL = process.env.API_URL || 'http://localhost:3001';
+const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const API_URL = process.env.API_URL || 'http://127.0.0.1:3001';
 const DRY_RUN = process.env.DRY_RUN === 'true';
 
 async function main() {

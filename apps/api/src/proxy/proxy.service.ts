@@ -2,6 +2,8 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import { PrismaService, ProxyStatus, EventOutboxStatus } from '@proxy-manager/db';
 import { ProxyEvent, ProxyEventType, generateCorrelationId, generateConfigHash } from '@proxy-manager/common';
 import { randomBytes } from 'crypto';
+import axios from 'axios';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 import { EventService } from '../event/event.service';
 import { AllocatorService } from '../allocator/allocator.service';
 @Injectable()
@@ -17,6 +19,8 @@ export class ProxyService {
     nodeId?: number;
     expiresAt: string;
     idempotencyKey?: string;
+    username?: string;
+    password?: string;
   }) {
     // Check idempotency
     if (data.idempotencyKey) {
@@ -38,19 +42,22 @@ export class ProxyService {
 
     // Allocate resources and create proxy in the same transaction
     const allocation = await this.allocatorService.allocate(data.nodeId, async (tx, alloc) => {
-      const proxy = await tx.proxy.create({
-        data: {
-          userId: data.userId,
-          nodeId: alloc.nodeId,
-          ipPoolId: alloc.ipPoolId,
-          portId: alloc.portId,
-          username: this.generateUsername(),
-          password: this.generatePassword(),
-          status: ProxyStatus.PENDING,
-          version: 1,
-          expiresAt: data.expiresAt ? new Date(data.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
-        },
-      });
+        const username = data.username || this.generateUsername();
+        const password = data.password || this.generatePassword();
+
+        const proxy = await tx.proxy.create({
+          data: {
+            userId: data.userId,
+            nodeId: alloc.nodeId,
+            ipPoolId: alloc.ipPoolId,
+            portId: alloc.portId,
+            username,
+            password,
+            status: ProxyStatus.ACTIVE,
+            version: 1,
+            expiresAt: data.expiresAt ? new Date(data.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
+          },
+        });
 
       // Create audit log inside transaction
       await tx.auditLog.create({
@@ -178,12 +185,17 @@ export class ProxyService {
       throw new ConflictException('System overloaded, cannot accept large batch');
     }
 
+    const sharedUsername = this.generateUsername();
+    const sharedPassword = this.generatePassword();
+
     for (let i = 0; i < data.count; i++) {
       try {
         const result = await this.create({
           userId: data.userId,
           nodeId: data.nodeId,
           expiresAt: data.expiresAt,
+          username: sharedUsername,
+          password: sharedPassword,
         });
         results.push(result);
       } catch (err) {
@@ -303,11 +315,58 @@ export class ProxyService {
     return { success: true };
   }
 
+  async checkConnection(id: number) {
+    const proxy = await this.prisma.proxy.findUnique({
+      where: { id },
+      include: {
+        node: true,
+        ipPool: true,
+        port: true,
+      },
+    });
+
+    if (!proxy || !proxy.ipPool || !proxy.port || !proxy.node) {
+      throw new NotFoundException('Proxy or related resources not found');
+    }
+
+    const proxyUrl = `socks5://${proxy.username}:${proxy.password}@${proxy.node.ipAddress}:${proxy.port.port}`;
+    const agent = new SocksProxyAgent(proxyUrl);
+    
+    const start = Date.now();
+    try {
+      const res = await axios.get('http://api.ipify.org?format=json', {
+        httpAgent: agent,
+        httpsAgent: agent,
+        timeout: 10000,
+      });
+      const latency = Date.now() - start;
+      
+      await this.prisma.proxy.update({
+        where: { id },
+        data: { lastChecked: new Date() }
+      });
+
+      return { ok: true, ip: res.data.ip, latency };
+    } catch (err: any) {
+      return { ok: false, error: err.message };
+    }
+  }
+
   private generateUsername(): string {
-    return `u_${randomBytes(4).toString('hex')}`;
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
   }
 
   private generatePassword(): string {
-    return randomBytes(12).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 8; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
   }
 }
