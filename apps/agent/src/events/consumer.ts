@@ -214,8 +214,8 @@ export class EventConsumer {
       const rawJson = fields.length > 1 ? fields[1] : fields[0];
       const event = JSON.parse(rawJson) as ProxyEvent & { signature?: string };
 
-      // Filter by node
-      if (event.nodeId !== this.config.nodeId) {
+      // Filter by node (Bypass in development so local agent can simulate all nodes)
+      if (process.env.NODE_ENV !== 'development' && event.nodeId !== this.config.nodeId) {
         await this.redis.xack(this.streamKey, this.consumerGroup, id);
         return;
       }

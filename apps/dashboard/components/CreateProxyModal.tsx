@@ -94,6 +94,12 @@ const CreateProxyModal: React.FC<CreateProxyModalProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} id="create-proxy-form" className="space-y-4">
+              {nodes.length === 0 && !loading && (
+                <div className="bg-orange-50 border border-orange-200 text-orange-800 rounded-md p-3 text-sm mb-4">
+                  Hệ thống hiện không có Node nào đang hoạt động. Vui lòng thêm Node trước khi tạo Proxy!
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center">
                   <Hash className="w-4 h-4 mr-2 text-gray-400" />
@@ -104,10 +110,10 @@ const CreateProxyModal: React.FC<CreateProxyModalProps> = ({
                   min="1"
                   max="1000"
                   required
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
                   value={count}
                   onChange={(e) => setCount(parseInt(e.target.value) || 1)}
-                  disabled={loading}
+                  disabled={loading || nodes.length === 0}
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Nhập số lượng proxy bạn muốn tạo (tối đa 1000 proxy mỗi lần).
@@ -120,10 +126,10 @@ const CreateProxyModal: React.FC<CreateProxyModalProps> = ({
                   Chọn Node
                 </label>
                 <select
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-gray-100 disabled:text-gray-500"
                   value={nodeId}
                   onChange={(e) => setNodeId(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || nodes.length === 0}
                 >
                   <option value="auto">Tự động chọn Node (Tối ưu nhất)</option>
                   {nodes.map(node => (
@@ -140,10 +146,10 @@ const CreateProxyModal: React.FC<CreateProxyModalProps> = ({
                   Thời hạn
                 </label>
                 <select
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-gray-100 disabled:text-gray-500"
                   value={durationDays}
                   onChange={(e) => setDurationDays(parseInt(e.target.value))}
-                  disabled={loading}
+                  disabled={loading || nodes.length === 0}
                 >
                   <option value={7}>7 ngày</option>
                   <option value={30}>30 ngày (1 tháng)</option>
@@ -159,7 +165,7 @@ const CreateProxyModal: React.FC<CreateProxyModalProps> = ({
             <button
               type="submit"
               form="create-proxy-form"
-              disabled={loading}
+              disabled={loading || nodes.length === 0}
               className="inline-flex w-full justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 sm:ml-3 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (

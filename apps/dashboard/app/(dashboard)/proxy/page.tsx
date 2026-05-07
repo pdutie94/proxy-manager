@@ -278,7 +278,7 @@ const ProxyPage: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div className="flex items-center">
                       <Globe className="w-4 h-4 mr-2 text-gray-400" />
-                      Node {proxy.nodeId}
+                      {nodes.find(n => n.id === proxy.nodeId)?.name || `Node ${proxy.nodeId}`}
                     </div>
                   </td>
                   <td className="px-6 py-4">
